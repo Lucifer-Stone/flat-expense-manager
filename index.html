@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlatMate Expense Manager</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #eef2ff; font-family: 'Segoe UI', system-ui, sans-serif; color: #1f2937; min-height: 100vh; }
+    button { cursor: pointer; border: none; font-family: inherit; }
+    input, select, textarea { font-family: inherit; }
+    .card { background: white; border-radius: 14px; box-shadow: 0 2px 10px rgba(79,70,229,0.08); }
+    input:focus, select:focus { outline: 2px solid #4f46e5; outline-offset: 1px; }
+    ::-webkit-scrollbar { height: 6px; width: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 3px; }
+    @media (max-width: 640px) {
+      .charts-grid { grid-template-columns: 1fr !important; }
+      .summary-grid { grid-template-columns: 1fr !important; }
+      .stats-grid { grid-template-columns: 1fr 1fr !important; }
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn 0.2s ease; }
+    @keyframes slideDown { from { opacity:0; max-height:0; } to { opacity:1; max-height:200px; } }
+    .success-toast { background: #d1fae5; color: #065f46; padding: 12px 18px; border-radius: 10px; margin-bottom: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; border: 1px solid #6ee7b7; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+<script type="text/babel">
+  const { useState, useEffect, useRef, useMemo } = React;
+
+  // ── Constants ──────────────────────────────────────────────────────────────
+  const CATEGORIES = ['Groceries', 'Utilities', 'Kitchen', 'Cleaning', 'Transport', 'Misc'];
+  const CAT_COLORS  = { Groceries:'#4f46e5', Utilities:'#06b6d4', Kitchen:'#10b981', Cleaning:'#f59e0b', Transport:'#ef4444', Misc:'#8b5cf6' };
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const MEMBER_COLORS = ['#4f46e5','#06b6d4','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316'];
+
+  const DEFAULT_MEMBERS = [
+    {id:'1',name:'Rahul',isAdmin:true},
+    {id:'2',name:'Amit',isAdmin:false},
+    {id:'3',name:'Suresh',isAdmin:false},
+    {id:'4',name:'Priya',isAdmin:false},
+    {id:'5',name:'Vikram',isAdmin:false},
+    {id:'6',name:'Neha',isAdmin:false},
+    {id:'7',name:'Karan',isAdmin:false},
+    {id:'8',name:'Divya',isAdmin:false},
+    {id:'9',name:'Rohan',isAdmin:false},
+  ];
+
+  const genId  = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
+  const mKey   = (mo, yr) => `${yr}-${String(mo+1).padStart(2,'0')}`;
+  const inr    = (n) => '₹' + Number(n).toLocaleString('en-IN');
+  const today  = () => new Date().toISOString().split('T')[0];
+
+  // ── App ────────────────────────────────────────────────────────────────────
+  function App() {
+    const now = new Date();
+
+    const [members,  setMembers]  = useState(() => JSON.parse(localStorage.getItem('fm_members')  || 'null') || DEFAULT_MEMBERS);
+    const [expenses, setExpenses] = useState(() => JSON.parse(localStorage.getItem('fm_expenses') || '[]'));
+    const [config,   setConfigRaw]= useState(() => JSON.parse(localStorage.getItem('fm_config')   || '{}'));
+    const [tab,      setTab]      = useState('dashboard');
+    const [selMonth, setSelMonth] = useState(now.getMonth());
+    const [selYear,  setSelYear]  = useState(now.getFullYear());
+
+    useEffect(() => { localStorage.setItem('fm_members',  JSON.stringify(members));  }, [members]);
+    useEffect(() => { localStorage.setItem('fm_expenses', JSON.stringify(expenses)); }, [expenses]);
+    useEffect(() => { localStorage.setItem('fm_config',   JSON.stringify(config));   }, [config]);
+
+    const getConfig = (mo, yr) => ({ rent:3000, mess:3000, ...config[mKey(mo,yr)] });
+    const setConfig = (mo, yr, upd) => setConfigRaw(p => ({ ...p, [mKey(mo,yr)]: { ...getConfig(mo,yr), ...upd } }));
+
+    const addExpense    = (e)      => setExpenses(p => [{ ...e, id:genId() }, ...p]);
+    const updateExpense = (id, u)  => setExpenses(p => p.map(e => e.id===id ? {...e,...u} : e));
+    const deleteExpense = (id)     => setExpenses(p => p.filter(e => e.id!==id));
+    const monthExp      = (mo, yr) => expenses.filter(e => { const d=new Date(e.date); return d.getMonth()===mo && d.getFullYear()===yr; });
+
+    const shared = { members, selMonth, selYear, setSelMonth, setSelYear, getConfig, setConfig, monthExp };
+
+    const tabs = [
+      {id:'dashboard', label:'🏠 Dashboard'},
+      {id:'add',       label:'➕ Add Expense'},
+      {id:'all',       label:'📋 All Expenses'},
+      {id:'summary',   label:'📊 Monthly Summary'},
+      {id:'charts',    label:'📈 Charts'},
+      {id:'members',   label:'👥 Members'},
+    ];
+
+    return (
+      <div style={{minHeight:'100vh'}}>
+        {/* Header */}
+        <div style={{background:'linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%)',color:'white',padding:'18px 24px',boxShadow:'0 4px 16px rgba(79,70,229,0.35)'}}>
+          <div style={{maxWidth:1140,margin:'0 auto',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+            <div>
+              <h1 style={{fontSize:'1.45rem',fontWeight:800,letterSpacing:'-0.4px'}}>🏠 FlatMate Expense Manager</h1>
+              <p style={{opacity:.75,fontSize:'0.82rem',marginTop:2}}>3 BHK &nbsp;·&nbsp; {members.length} Members</p>
+            </div>
+            <div style={{background:'rgba(255,255,255,0.15)',borderRadius:10,padding:'8px 16px',fontSize:'0.82rem',fontWeight:600}}>
+              {MONTHS[selMonth]} {selYear}
+            </div>
+          </div>
+        </div>
+
+        {/* Tab bar */}
+        <div style={{background:'white',borderBottom:'1px solid #e0e7ff',position:'sticky',top:0,zIndex:50,boxShadow:'0 1px 4px rgba(79,70,229,0.06)'}}>
+          <div style={{maxWidth:1140,margin:'0 auto',display:'flex',gap:2,padding:'0 12px',overflowX:'auto'}}>
+            {tabs.map(t => (
+              <button key={t.id} onClick={()=>setTab(t.id)} style={{
+                padding:'13px 16px', fontWeight: tab===t.id ? 700 : 500, fontSize:'0.845rem',
+                whiteSpace:'nowrap', background:'transparent',
+                borderBottom: tab===t.id ? '3px solid #4f46e5' : '3px solid transparent',
+                color: tab===t.id ? '#4f46e5' : '#6b7280', transition:'all .18s'
+              }}>{t.label}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Page */}
+        <div style={{maxWidth:1140,margin:'0 auto',padding:'22px 16px'}} className="fade-in" key={tab}>
+          {tab==='dashboard' && <Dashboard {...shared} expenses={expenses} />}
+          {tab==='add'       && <AddExpenseForm {...shared} addExpense={addExpense} />}
+          {tab==='all'       && <AllExpenses expenses={expenses} members={members} updateExpense={updateExpense} deleteExpense={deleteExpense} />}
+          {tab==='summary'   && <MonthlySummary {...shared} />}
+          {tab==='charts'    && <Charts {...shared} expenses={expenses} />}
+          {tab==='members'   && <MembersTab members={members} setMembers={setMembers} />}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Dashboard ──────────────────────────────────────────────────────────────
+  function Dashboard({ members, expenses, selMonth, selYear, getConfig, monthExp }) {
+    const cfg  = getConfig(selMonth, selYear);
+    const mexp = monthExp(selMonth, selYear);
+    const totalExpenses  = mexp.reduce((s,e) => s+Number(e.amount), 0);
+    const totalRent      = members.length * cfg.rent;
+    const totalMess      = members.length * cfg.mess;
+    const recentExpenses = expenses.slice(0, 10);
+
+    const memberSummary = members.map(m => {
+      const spent   = mexp.filter(e=>e.memberId===m.id).reduce((s,e)=>s+Number(e.amount),0);
+      const balance = cfg.mess - spent;
+      return { ...m, spent, balance };
+    });
+
+    return (
+      <div>
+        <SectionTitle>{MONTHS[selMonth]} {selYear} — Overview</SectionTitle>
+
+        {/* Stat cards */}
+        <div className="stats-grid" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:22}}>
+          <StatCard icon="💸" title="Total Expenses" value={inr(totalExpenses)} sub={`${mexp.length} entries this month`} accent="#4f46e5" />
+          <StatCard icon="🏠" title="Total Rent" value={inr(totalRent)} sub={inr(cfg.rent)+' per head'} accent="#10b981" />
+          <StatCard icon="🍽️" title="Total Mess Pool" value={inr(totalMess)} sub={inr(cfg.mess)+' per head'} accent="#f59e0b" />
+          <StatCard icon="👥" title="Members" value={members.length} sub="in this flat" accent="#8b5cf6" />
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+          {/* Member expense table */}
+          <div className="card" style={{padding:20}}>
+            <h3 style={{fontWeight:700,color:'#374151',marginBottom:14,fontSize:'0.92rem'}}>Member Expense Overview</h3>
+            {memberSummary.map((m,i) => (
+              <div key={m.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 0',borderBottom:'1px solid #f3f4f6'}}>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <Avatar name={m.name} color={MEMBER_COLORS[i%9]} size={32} />
+                  <div>
+                    <div style={{fontWeight:600,fontSize:'0.845rem',color:'#1f2937'}}>{m.name}</div>
+                    {m.isAdmin && <AdminBadge />}
+                  </div>
+                </div>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontWeight:700,color: m.spent>0 ? '#4f46e5' : '#9ca3af',fontSize:'0.9rem'}}>{inr(m.spent)}</div>
+                  <div style={{fontSize:'0.7rem',color: m.balance<0 ? '#ef4444' : '#6b7280'}}>
+                    {m.balance<0 ? `Refund: ${inr(Math.abs(m.balance))}` : `Due: ${inr(m.balance)}`}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Recent expenses */}
+          <div className="card" style={{padding:20}}>
+            <h3 style={{fontWeight:700,color:'#374151',marginBottom:14,fontSize:'0.92rem'}}>Recent Expenses (All Time)</h3>
+            {recentExpenses.length===0
+              ? <EmptyState text="No expenses logged yet" />
+              : recentExpenses.map(e => {
+                  const mem = members.find(m=>m.id===e.memberId);
+                  return (
+                    <div key={e.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 0',borderBottom:'1px solid #f3f4f6'}}>
+                      <div>
+                        <div style={{fontSize:'0.845rem',fontWeight:600,color:'#1f2937'}}>{e.description||e.category}</div>
+                        <div style={{fontSize:'0.75rem',color:'#6b7280'}}>{mem?.name} · {new Date(e.date).toLocaleDateString('en-IN')}</div>
+                      </div>
+                      <div style={{display:'flex',alignItems:'center',gap:6}}>
+                        <CatBadge cat={e.category} />
+                        <span style={{fontWeight:700,color:'#4f46e5',fontSize:'0.88rem'}}>{inr(e.amount)}</span>
+                      </div>
+                    </div>
+                  );
+                })
+            }
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function StatCard({ icon, title, value, sub, accent }) {
+    return (
+      <div className="card" style={{padding:18}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+          <div>
+            <div style={{fontSize:'0.72rem',fontWeight:600,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.06em'}}>{title}</div>
+            <div style={{fontSize:'1.55rem',fontWeight:800,color:'#1f2937',marginTop:4}}>{value}</div>
+            <div style={{fontSize:'0.72rem',color:'#9ca3af',marginTop:2}}>{sub}</div>
+          </div>
+          <div style={{fontSize:'1.7rem',background:accent+'18',borderRadius:10,width:44,height:44,display:'flex',alignItems:'center',justifyContent:'center'}}>{icon}</div>
+        </div>
+        <div style={{height:3,background:accent+'30',borderRadius:99,marginTop:14}}>
+          <div style={{width:'60%',height:'100%',background:accent,borderRadius:99}}></div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Add Expense Form ───────────────────────────────────────────────────────
+  function AddExpenseForm({ members, addExpense }) {
+    const [form, setForm]    = useState({ memberId: members[0]?.id||'', amount:'', category:'Groceries', description:'', date:today() });
+    const [success, setOk]   = useState(false);
+    const f = (k,v) => setForm(p => ({...p,[k]:v}));
+
+    const submit = (e) => {
+      e.preventDefault();
+      if (!form.memberId || !form.amount || !form.date) return;
+      addExpense({ ...form, amount: Number(form.amount) });
+      setForm({ memberId: members[0]?.id||'', amount:'', category:'Groceries', description:'', date:today() });
+      setOk(true);
+      setTimeout(()=>setOk(false), 2800);
+    };
+
+    return (
+      <div style={{maxWidth:520,margin:'0 auto'}}>
+        <SectionTitle>Log New Expense</SectionTitle>
+        <div className="card" style={{padding:28}}>
+          {success && <div className="success-toast">✅ Expense logged successfully!</div>}
+          <form onSubmit={submit}>
+            <div style={{display:'grid',gap:16}}>
+              <Field label="Member">
+                <select value={form.memberId} onChange={e=>f('memberId',e.target.value)} required style={selStyle}>
+                  {members.map(m => <option key={m.id} value={m.id}>{m.name}{m.isAdmin?' (Admin)':''}</option>)}
+                </select>
+              </Field>
+              <Field label="Amount (₹)">
+                <input type="number" value={form.amount} onChange={e=>f('amount',e.target.value)} required min="1" placeholder="e.g. 500" style={inputStyle} />
+              </Field>
+              <Field label="Category">
+                <select value={form.category} onChange={e=>f('category',e.target.value)} style={selStyle}>
+                  {CATEGORIES.map(c=><option key={c}>{c}</option>)}
+                </select>
+              </Field>
+              <Field label="Description (optional)">
+                <input type="text" value={form.description} onChange={e=>f('description',e.target.value)} placeholder="e.g. Bought vegetables from market" style={inputStyle} />
+              </Field>
+              <Field label="Date">
+                <input type="date" value={form.date} onChange={e=>f('date',e.target.value)} required style={inputStyle} />
+              </Field>
+              <PrimaryBtn style={{marginTop:4,width:'100%',padding:13,fontSize:'1rem'}}>Add Expense</PrimaryBtn>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // ── All Expenses ───────────────────────────────────────────────────────────
+  function AllExpenses({ expenses, members, updateExpense, deleteExpense }) {
+    const [editId,   setEditId]   = useState(null);
+    const [editForm, setEditForm] = useState({});
+    const [filter,   setFilter]   = useState({member:'all',category:'all',search:'',month:'all'});
+    const [sortKey,  setSortKey]  = useState('date');
+    const [sortAsc,  setSortAsc]  = useState(false);
+
+    const ef = (k,v) => setEditForm(p=>({...p,[k]:v}));
+
+    const filtered = useMemo(() => {
+      let r = [...expenses];
+      if (filter.member   !== 'all') r = r.filter(e => e.memberId===filter.member);
+      if (filter.category !== 'all') r = r.filter(e => e.category===filter.category);
+      if (filter.month    !== 'all') r = r.filter(e => { const d=new Date(e.date); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`===filter.month; });
+      if (filter.search)             r = r.filter(e => (e.description||'').toLowerCase().includes(filter.search.toLowerCase()) || e.category.toLowerCase().includes(filter.search.toLowerCase()) || (members.find(m=>m.id===e.memberId)?.name||'').toLowerCase().includes(filter.search.toLowerCase()));
+      return r.sort((a,b) => {
+        let av=a[sortKey], bv=b[sortKey];
+        if (sortKey==='amount') { av=Number(av); bv=Number(bv); }
+        else if (sortKey==='date') { av=new Date(av); bv=new Date(bv); }
+        return sortAsc ? (av>bv?1:-1) : (av<bv?1:-1);
+      });
+    }, [expenses, filter, sortKey, sortAsc, members]);
+
+    const totalFiltered = filtered.reduce((s,e)=>s+Number(e.amount),0);
+
+    const startEdit = (e) => { setEditId(e.id); setEditForm({memberId:e.memberId,amount:e.amount,category:e.category,description:e.description||'',date:e.date}); };
+    const saveEdit  = (id) => { updateExpense(id,{...editForm,amount:Number(editForm.amount)}); setEditId(null); };
+    const sort      = (k)  => { if(sortKey===k) setSortAsc(a=>!a); else { setSortKey(k); setSortAsc(false); } };
+    const Hdr = ({k,label}) => (
+      <th onClick={()=>sort(k)} style={{padding:'11px 14px',textAlign:'left',cursor:'pointer',whiteSpace:'nowrap',fontWeight:700,color:'#374151',background:'#f0f4ff',fontSize:'0.82rem',userSelect:'none'}}>
+        {label} {sortKey===k ? (sortAsc?'↑':'↓') : <span style={{opacity:.35}}>↕</span>}
+      </th>
+    );
+
+    // Unique months for filter
+    const availMonths = [...new Set(expenses.map(e=>{ const d=new Date(e.date); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }))].sort().reverse();
+
+    return (
+      <div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:8}}>
+          <SectionTitle style={{margin:0}}>All Expenses</SectionTitle>
+          <div style={{fontWeight:700,color:'#4f46e5',background:'#eef2ff',padding:'6px 14px',borderRadius:8,fontSize:'0.88rem'}}>
+            Total: {inr(totalFiltered)} &nbsp;({filtered.length} entries)
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="card" style={{padding:14,marginBottom:14,display:'flex',gap:10,flexWrap:'wrap'}}>
+          <input type="text" placeholder="🔍 Search description, member, category…" value={filter.search} onChange={e=>setFilter(p=>({...p,search:e.target.value}))} style={{...inputStyle,flex:1,minWidth:160}} />
+          <select value={filter.member} onChange={e=>setFilter(p=>({...p,member:e.target.value}))} style={selStyle}>
+            <option value="all">All Members</option>
+            {members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+          <select value={filter.category} onChange={e=>setFilter(p=>({...p,category:e.target.value}))} style={selStyle}>
+            <option value="all">All Categories</option>
+            {CATEGORIES.map(c=><option key={c}>{c}</option>)}
+          </select>
+          <select value={filter.month} onChange={e=>setFilter(p=>({...p,month:e.target.value}))} style={selStyle}>
+            <option value="all">All Months</option>
+            {availMonths.map(m => {
+              const [yr,mo]=m.split('-');
+              return <option key={m} value={m}>{MONTHS[Number(mo)-1]} {yr}</option>;
+            })}
+          </select>
+          {(filter.search||filter.member!=='all'||filter.category!=='all'||filter.month!=='all') &&
+            <button onClick={()=>setFilter({member:'all',category:'all',search:'',month:'all'})} style={{background:'#fee2e2',color:'#b91c1c',borderRadius:8,padding:'8px 12px',fontWeight:600,fontSize:'0.82rem'}}>✕ Clear</button>
+          }
+        </div>
+
+        {/* Table */}
+        <div className="card" style={{overflow:'auto'}}>
+          <table style={{width:'100%',fontSize:'0.86rem',borderCollapse:'collapse'}}>
+            <thead>
+              <tr>
+                <Hdr k="date" label="Date" />
+                <Hdr k="memberId" label="Member" />
+                <Hdr k="category" label="Category" />
+                <th style={{padding:'11px 14px',textAlign:'left',fontWeight:700,color:'#374151',background:'#f0f4ff',fontSize:'0.82rem'}}>Description</th>
+                <Hdr k="amount" label="Amount" />
+                <th style={{padding:'11px 14px',textAlign:'left',fontWeight:700,color:'#374151',background:'#f0f4ff',fontSize:'0.82rem'}}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length===0
+                ? <tr><td colSpan={6} style={{padding:36,textAlign:'center',color:'#9ca3af'}}>No expenses found</td></tr>
+                : filtered.map((e,i) => {
+                    const mem     = members.find(m=>m.id===e.memberId);
+                    const isEditing = editId===e.id;
+                    const rowBg   = i%2===0 ? 'white' : '#fafafa';
+                    return (
+                      <tr key={e.id} style={{borderTop:'1px solid #f3f4f6',background:rowBg}}>
+                        {isEditing ? (
+                          <>
+                            <td style={td}><input type="date" value={editForm.date} onChange={ev=>ef('date',ev.target.value)} style={{...inputStyle,width:130,padding:'5px 8px'}} /></td>
+                            <td style={td}>
+                              <select value={editForm.memberId} onChange={ev=>ef('memberId',ev.target.value)} style={{...selStyle,padding:'5px 8px'}}>
+                                {members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                              </select>
+                            </td>
+                            <td style={td}>
+                              <select value={editForm.category} onChange={ev=>ef('category',ev.target.value)} style={{...selStyle,padding:'5px 8px'}}>
+                                {CATEGORIES.map(c=><option key={c}>{c}</option>)}
+                              </select>
+                            </td>
+                            <td style={td}><input type="text" value={editForm.description} onChange={ev=>ef('description',ev.target.value)} placeholder="Description" style={{...inputStyle,width:170,padding:'5px 8px'}} /></td>
+                            <td style={td}><input type="number" value={editForm.amount} onChange={ev=>ef('amount',ev.target.value)} style={{...inputStyle,width:90,padding:'5px 8px'}} /></td>
+                            <td style={{...td,whiteSpace:'nowrap'}}>
+                              <button onClick={()=>saveEdit(e.id)} style={{background:'#10b981',color:'white',borderRadius:6,padding:'4px 12px',fontWeight:600,fontSize:'0.8rem',marginRight:6}}>✓ Save</button>
+                              <button onClick={()=>setEditId(null)} style={{background:'#6b7280',color:'white',borderRadius:6,padding:'4px 10px',fontWeight:600,fontSize:'0.8rem'}}>✕</button>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td style={{...td,color:'#6b7280'}}>{new Date(e.date).toLocaleDateString('en-IN')}</td>
+                            <td style={{...td,fontWeight:600,color:'#1f2937'}}>{mem?.name||'?'}</td>
+                            <td style={td}><CatBadge cat={e.category} /></td>
+                            <td style={{...td,color:'#374151'}}>{e.description||<span style={{color:'#d1d5db'}}>—</span>}</td>
+                            <td style={{...td,fontWeight:700,color:'#4f46e5'}}>{inr(e.amount)}</td>
+                            <td style={{...td,whiteSpace:'nowrap'}}>
+                              <button onClick={()=>startEdit(e)} style={{background:'#fef3c7',color:'#92400e',borderRadius:6,padding:'4px 12px',fontWeight:600,fontSize:'0.8rem',marginRight:6}}>✏️ Edit</button>
+                              <button onClick={()=>{ if(confirm(`Delete this ₹${e.amount} expense?`)) deleteExpense(e.id); }} style={{background:'#fee2e2',color:'#b91c1c',borderRadius:6,padding:'4px 10px',fontWeight:600,fontSize:'0.8rem'}}>🗑️</button>
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })
+              }
+              {/* Totals row */}
+              {filtered.length>0 && (
+                <tr style={{borderTop:'2px solid #e0e7ff',background:'#f0f4ff'}}>
+                  <td colSpan={4} style={{padding:'11px 14px',fontWeight:700,color:'#374151',fontSize:'0.86rem'}}>TOTAL ({filtered.length} entries)</td>
+                  <td style={{padding:'11px 14px',fontWeight:800,color:'#4f46e5',fontSize:'0.95rem'}}>{inr(totalFiltered)}</td>
+                  <td></td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Monthly Summary ────────────────────────────────────────────────────────
+  function MonthlySummary({ members, selMonth, selYear, setSelMonth, setSelYear, getConfig, setConfig, monthExp }) {
+    const [view,    setView]   = useState('card'); // 'card' | 'table'
+    const [editing, setEditing]= useState(null);   // 'rent' | 'mess'
+    const [tmpVal,  setTmpVal] = useState('');
+
+    const cfg  = getConfig(selMonth, selYear);
+    const mexp = monthExp(selMonth, selYear);
+    const totalExpenses = mexp.reduce((s,e)=>s+Number(e.amount),0);
+
+    const rows = members.map((m,i) => {
+      const spent   = mexp.filter(e=>e.memberId===m.id).reduce((s,e)=>s+Number(e.amount),0);
+      const balance = cfg.mess - spent;          // positive = still owes to pool; negative = overspent, admin refunds
+      return { ...m, color: MEMBER_COLORS[i%9], spent, balance, netToAdmin: cfg.rent + Math.max(0, balance) };
+    });
+
+    const startEdit = (field) => { setEditing(field); setTmpVal(String(cfg[field])); };
+    const saveEdit  = ()      => { if(editing) setConfig(selMonth, selYear, {[editing]: Number(tmpVal)||cfg[editing]}); setEditing(null); };
+
+    const years = [selYear-2, selYear-1, selYear, selYear+1];
+
+    return (
+      <div>
+        {/* Controls */}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,flexWrap:'wrap',gap:10}}>
+          <SectionTitle style={{margin:0}}>Monthly Summary</SectionTitle>
+          <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+            <select value={selMonth} onChange={e=>setSelMonth(Number(e.target.value))} style={selStyle}>
+              {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
+            </select>
+            <select value={selYear} onChange={e=>setSelYear(Number(e.target.value))} style={selStyle}>
+              {years.map(y=><option key={y}>{y}</option>)}
+            </select>
+            {/* View toggle */}
+            <div style={{display:'flex',gap:4,background:'#f3f4f6',borderRadius:9,padding:4}}>
+              {[['card','🃏 Cards'],['table','📋 Table']].map(([v,l]) => (
+                <button key={v} onClick={()=>setView(v)} style={{padding:'6px 14px',borderRadius:7,fontWeight:600,fontSize:'0.82rem',background:view===v?'white':'transparent',color:view===v?'#4f46e5':'#6b7280',boxShadow:view===v?'0 1px 5px rgba(0,0,0,0.1)':'none',transition:'all .15s'}}>{l}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Config / summary bar */}
+        <div className="card" style={{padding:'16px 20px',marginBottom:18,display:'flex',gap:24,flexWrap:'wrap',alignItems:'center'}}>
+          {[['rent','🏠 Rent per head'],['mess','🍽️ Mess contribution per head']].map(([field,label]) => (
+            <div key={field}>
+              <div style={{fontSize:'0.72rem',fontWeight:600,color:'#6b7280',marginBottom:3}}>{label}</div>
+              {editing===field ? (
+                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                  <span style={{color:'#374151'}}>₹</span>
+                  <input type="number" value={tmpVal} onChange={e=>setTmpVal(e.target.value)} autoFocus onKeyDown={e=>{ if(e.key==='Enter') saveEdit(); if(e.key==='Escape') setEditing(null); }} style={{width:90,padding:'5px 8px',border:'2px solid #4f46e5',borderRadius:7,fontWeight:700,fontSize:'1rem'}} />
+                  <button onClick={saveEdit}         style={{background:'#10b981',color:'white',borderRadius:6,padding:'4px 10px',fontWeight:600}}>✓</button>
+                  <button onClick={()=>setEditing(null)} style={{background:'#6b7280',color:'white',borderRadius:6,padding:'4px 10px',fontWeight:600}}>✕</button>
+                </div>
+              ) : (
+                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                  <span style={{fontSize:'1.25rem',fontWeight:800,color:'#1f2937'}}>{inr(cfg[field])}</span>
+                  <button onClick={()=>startEdit(field)} title="Edit" style={{background:'#f3f4f6',borderRadius:7,padding:'4px 7px',color:'#6b7280',fontSize:'0.9rem'}}>✏️</button>
+                </div>
+              )}
+            </div>
+          ))}
+          <div style={{marginLeft:'auto',textAlign:'right',background:'#eef2ff',borderRadius:10,padding:'10px 18px'}}>
+            <div style={{fontSize:'0.72rem',fontWeight:600,color:'#6b7280'}}>Total Expenses This Month</div>
+            <div style={{fontSize:'1.5rem',fontWeight:800,color:'#4f46e5'}}>{inr(totalExpenses)}</div>
+            <div style={{fontSize:'0.72rem',color:'#6b7280'}}>{mexp.length} entries</div>
+          </div>
+        </div>
+
+        {/* Card view */}
+        {view==='card' && (
+          <div className="summary-grid" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:14}}>
+            {rows.map(m => (
+              <div key={m.id} className="card" style={{padding:18}}>
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+                  <Avatar name={m.name} color={m.color} size={40} />
+                  <div>
+                    <div style={{fontWeight:700,color:'#1f2937'}}>{m.name}</div>
+                    {m.isAdmin && <AdminBadge />}
+                  </div>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
+                  <MiniStat label="Rent"          value={inr(cfg.rent)} />
+                  <MiniStat label="Mess Budget"   value={inr(cfg.mess)} />
+                  <MiniStat label="Spent by me"   value={inr(m.spent)}    color="#4f46e5" />
+                  <MiniStat label="Remaining Due" value={inr(Math.max(0,m.balance))} color={m.balance<0?'#ef4444':'#10b981'} />
+                </div>
+                <div style={{borderTop:'1px solid #f3f4f6',paddingTop:10}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <span style={{fontSize:'0.78rem',color:'#6b7280',fontWeight:600}}>Net to Pay Admin</span>
+                    <span style={{fontWeight:800,color: m.balance<0?'#10b981':'#1f2937',fontSize:'1.05rem'}}>{inr(m.netToAdmin)}</span>
+                  </div>
+                  {m.balance<0 && (
+                    <div style={{marginTop:6,fontSize:'0.74rem',color:'#10b981',background:'#d1fae5',borderRadius:6,padding:'4px 8px'}}>
+                      🎉 Admin refunds {inr(Math.abs(m.balance))} to this member
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Table view */}
+        {view==='table' && (
+          <div className="card" style={{overflow:'auto'}}>
+            <table style={{width:'100%',fontSize:'0.86rem',borderCollapse:'collapse'}}>
+              <thead>
+                <tr>
+                  {['Member','Rent (₹)','Mess Budget (₹)','Spent (₹)','Balance Due (₹)','Net to Admin (₹)','Status'].map(h=>(
+                    <th key={h} style={{padding:'12px 14px',textAlign:'left',fontWeight:700,color:'#374151',background:'#f0f4ff',whiteSpace:'nowrap',borderBottom:'2px solid #e0e7ff',fontSize:'0.82rem'}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((m,i) => (
+                  <tr key={m.id} style={{borderBottom:'1px solid #f3f4f6',background:i%2===0?'white':'#fafafa'}}>
+                    <td style={td}>
+                      <div style={{display:'flex',alignItems:'center',gap:8}}>
+                        <Avatar name={m.name} color={m.color} size={28} />
+                        <div>
+                          <div style={{fontWeight:600,color:'#1f2937'}}>{m.name}</div>
+                          {m.isAdmin && <AdminBadge />}
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{...td,fontWeight:600}}>{inr(cfg.rent)}</td>
+                    <td style={{...td,fontWeight:600}}>{inr(cfg.mess)}</td>
+                    <td style={{...td,fontWeight:700,color:'#4f46e5'}}>{inr(m.spent)}</td>
+                    <td style={{...td,fontWeight:700,color: m.balance<0?'#ef4444':'#10b981'}}>{inr(Math.max(0,m.balance))}</td>
+                    <td style={{...td,fontWeight:800,color:'#1f2937'}}>{inr(m.netToAdmin)}</td>
+                    <td style={td}>
+                      {m.balance<0
+                        ? <span style={{background:'#d1fae5',color:'#065f46',padding:'3px 10px',borderRadius:999,fontSize:'0.75rem',fontWeight:700}}>Refund {inr(Math.abs(m.balance))}</span>
+                        : m.spent===0
+                          ? <span style={{background:'#f3f4f6',color:'#6b7280',padding:'3px 10px',borderRadius:999,fontSize:'0.75rem',fontWeight:700}}>No Expense</span>
+                          : <span style={{background:'#ede9fe',color:'#7c3aed',padding:'3px 10px',borderRadius:999,fontSize:'0.75rem',fontWeight:700}}>Active</span>
+                      }
+                    </td>
+                  </tr>
+                ))}
+                {/* Totals row */}
+                <tr style={{borderTop:'2px solid #e0e7ff',background:'#f0f4ff'}}>
+                  <td style={{...td,fontWeight:800,color:'#1f2937'}}>TOTAL ({members.length} members)</td>
+                  <td style={{...td,fontWeight:800}}>{inr(cfg.rent*members.length)}</td>
+                  <td style={{...td,fontWeight:800}}>{inr(cfg.mess*members.length)}</td>
+                  <td style={{...td,fontWeight:800,color:'#4f46e5'}}>{inr(rows.reduce((s,m)=>s+m.spent,0))}</td>
+                  <td style={{...td,fontWeight:800}}>{inr(rows.reduce((s,m)=>s+Math.max(0,m.balance),0))}</td>
+                  <td style={{...td,fontWeight:800}}>{inr(rows.reduce((s,m)=>s+m.netToAdmin,0))}</td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Charts ─────────────────────────────────────────────────────────────────
+  function Charts({ expenses, members, selMonth, selYear, setSelMonth, setSelYear, monthExp }) {
+    const pieRef  = useRef(null);
+    const barRef  = useRef(null);
+    const pieInst = useRef(null);
+    const barInst = useRef(null);
+
+    const mexp = monthExp(selMonth, selYear);
+
+    useEffect(() => {
+      const catTotals    = CATEGORIES.map(c => mexp.filter(e=>e.category===c).reduce((s,e)=>s+Number(e.amount),0));
+      const memberTotals = members.map(m => mexp.filter(e=>e.memberId===m.id).reduce((s,e)=>s+Number(e.amount),0));
+
+      if (pieInst.current) { pieInst.current.destroy(); pieInst.current=null; }
+      if (barInst.current) { barInst.current.destroy(); barInst.current=null; }
+
+      if (pieRef.current) {
+        pieInst.current = new Chart(pieRef.current, {
+          type: 'doughnut',
+          data: {
+            labels: CATEGORIES,
+            datasets: [{ data: catTotals, backgroundColor: Object.values(CAT_COLORS), borderWidth: 3, borderColor: 'white', hoverOffset: 8 }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false, cutout: '60%',
+            plugins: {
+              legend: { position:'bottom', labels:{padding:16,font:{size:12}} },
+              title:  { display:true, text:`Expenses by Category — ${MONTHS[selMonth]} ${selYear}`, font:{size:14,weight:'bold'}, padding:{bottom:12} },
+              tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ₹${ctx.raw.toLocaleString('en-IN')}` } }
+            }
+          }
+        });
+      }
+
+      if (barRef.current) {
+        barInst.current = new Chart(barRef.current, {
+          type: 'bar',
+          data: {
+            labels: members.map(m=>m.name),
+            datasets: [{
+              label: 'Expenses (₹)', data: memberTotals,
+              backgroundColor: MEMBER_COLORS,
+              borderRadius: 8, borderSkipped: false,
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+              legend: { display:false },
+              title:  { display:true, text:`Expenses by Member — ${MONTHS[selMonth]} ${selYear}`, font:{size:14,weight:'bold'}, padding:{bottom:12} },
+              tooltip: { callbacks: { label: ctx => ` ₹${ctx.raw.toLocaleString('en-IN')}` } }
+            },
+            scales: {
+              y: { beginAtZero:true, ticks:{ callback: v=>'₹'+Number(v).toLocaleString('en-IN') }, grid:{color:'#f3f4f6'} },
+              x: { grid:{display:false}, ticks:{maxRotation:30} }
+            }
+          }
+        });
+      }
+
+      return () => {
+        if (pieInst.current) { pieInst.current.destroy(); pieInst.current=null; }
+        if (barInst.current) { barInst.current.destroy(); barInst.current=null; }
+      };
+    }, [mexp, selMonth, selYear, members]);
+
+    const years = [selYear-2, selYear-1, selYear, selYear+1];
+    const allTime = expenses.reduce((s,e)=>s+Number(e.amount),0);
+
+    return (
+      <div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,flexWrap:'wrap',gap:10}}>
+          <SectionTitle style={{margin:0}}>Charts & Analytics</SectionTitle>
+          <div style={{display:'flex',gap:8}}>
+            <select value={selMonth} onChange={e=>setSelMonth(Number(e.target.value))} style={selStyle}>
+              {MONTHS.map((m,i)=><option key={i} value={i}>{m}</option>)}
+            </select>
+            <select value={selYear} onChange={e=>setSelYear(Number(e.target.value))} style={selStyle}>
+              {years.map(y=><option key={y}>{y}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* Charts */}
+        <div className="charts-grid" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:18}}>
+          <div className="card" style={{padding:20}}>
+            <div style={{height:340}}><canvas ref={pieRef}></canvas></div>
+          </div>
+          <div className="card" style={{padding:20}}>
+            <div style={{height:340}}><canvas ref={barRef}></canvas></div>
+          </div>
+        </div>
+
+        {/* Category breakdown */}
+        <div className="card" style={{padding:20,marginBottom:16}}>
+          <h3 style={{fontWeight:700,color:'#374151',marginBottom:14,fontSize:'0.92rem'}}>Category Breakdown — {MONTHS[selMonth]} {selYear}</h3>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(155px,1fr))',gap:10}}>
+            {CATEGORIES.map(c => {
+              const total = mexp.filter(e=>e.category===c).reduce((s,e)=>s+Number(e.amount),0);
+              const count = mexp.filter(e=>e.category===c).length;
+              const pct   = mexp.length ? Math.round(total / mexp.reduce((s,e)=>s+Number(e.amount),0) * 100) : 0;
+              return (
+                <div key={c} style={{background:CAT_COLORS[c]+'0f',border:`1px solid ${CAT_COLORS[c]}30`,borderRadius:10,padding:'12px 14px'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                    <div style={{width:10,height:10,borderRadius:'50%',background:CAT_COLORS[c]}}></div>
+                    <span style={{color:CAT_COLORS[c],fontWeight:700,fontSize:'0.82rem'}}>{c}</span>
+                  </div>
+                  <div style={{fontSize:'1.15rem',fontWeight:800,color:'#1f2937'}}>{inr(total)}</div>
+                  <div style={{fontSize:'0.72rem',color:'#9ca3af'}}>{count} entries · {pct}%</div>
+                  <div style={{height:3,background:'#e5e7eb',borderRadius:99,marginTop:8}}>
+                    <div style={{width:`${pct}%`,height:'100%',background:CAT_COLORS[c],borderRadius:99}}></div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* All-time stat */}
+        <div className="card" style={{padding:16,display:'flex',gap:24,flexWrap:'wrap'}}>
+          <div>
+            <div style={{fontSize:'0.72rem',fontWeight:600,color:'#6b7280'}}>ALL TIME TOTAL EXPENSES</div>
+            <div style={{fontSize:'1.5rem',fontWeight:800,color:'#4f46e5'}}>{inr(allTime)}</div>
+          </div>
+          <div>
+            <div style={{fontSize:'0.72rem',fontWeight:600,color:'#6b7280'}}>TOTAL ENTRIES</div>
+            <div style={{fontSize:'1.5rem',fontWeight:800,color:'#1f2937'}}>{expenses.length}</div>
+          </div>
+          <div>
+            <div style={{fontSize:'0.72rem',fontWeight:600,color:'#6b7280'}}>THIS MONTH</div>
+            <div style={{fontSize:'1.5rem',fontWeight:800,color:'#10b981'}}>{inr(mexp.reduce((s,e)=>s+Number(e.amount),0))}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Members ────────────────────────────────────────────────────────────────
+  function MembersTab({ members, setMembers }) {
+    const [editId,   setEditId]  = useState(null);
+    const [editName, setEditName]= useState('');
+
+    const startEdit  = (m)  => { setEditId(m.id); setEditName(m.name); };
+    const saveEdit   = ()   => { setMembers(p=>p.map(m=>m.id===editId?{...m,name:editName.trim()||m.name}:m)); setEditId(null); };
+    const toggleAdmin= (id) => { setMembers(p=>p.map(m=>m.id===id?{...m,isAdmin:!m.isAdmin}:m)); };
+
+    return (
+      <div>
+        <SectionTitle>Members ({members.length})</SectionTitle>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(270px,1fr))',gap:14}}>
+          {members.map((m,i) => (
+            <div key={m.id} className="card" style={{padding:18,display:'flex',alignItems:'center',gap:14}}>
+              <Avatar name={m.name} color={MEMBER_COLORS[i%9]} size={48} style={{flexShrink:0,fontSize:'1.2rem'}} />
+              <div style={{flex:1}}>
+                {editId===m.id ? (
+                  <div style={{display:'flex',gap:6}}>
+                    <input value={editName} onChange={e=>setEditName(e.target.value)} autoFocus onKeyDown={e=>{if(e.key==='Enter')saveEdit();if(e.key==='Escape')setEditId(null);}} style={{...inputStyle,flex:1,padding:'6px 8px',fontWeight:600}} />
+                    <button onClick={saveEdit}          style={{background:'#10b981',color:'white',borderRadius:6,padding:'4px 9px'}}>✓</button>
+                    <button onClick={()=>setEditId(null)} style={{background:'#6b7280',color:'white',borderRadius:6,padding:'4px 9px'}}>✕</button>
+                  </div>
+                ) : (
+                  <div style={{display:'flex',alignItems:'center',gap:6}}>
+                    <span style={{fontWeight:700,color:'#1f2937'}}>{m.name}</span>
+                    <button onClick={()=>startEdit(m)} title="Edit name" style={{background:'none',color:'#9ca3af',fontSize:'0.85rem',borderRadius:5,padding:'2px 4px'}}>✏️</button>
+                  </div>
+                )}
+                <div style={{marginTop:6}}>
+                  <button onClick={()=>toggleAdmin(m.id)} style={{background:m.isAdmin?'#dbeafe':'#f3f4f6',color:m.isAdmin?'#1d4ed8':'#6b7280',padding:'3px 12px',borderRadius:999,fontSize:'0.72rem',fontWeight:700,border:'none'}}>
+                    {m.isAdmin ? '⭐ Admin' : 'Member'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{marginTop:18,padding:'14px 18px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:10,fontSize:'0.82rem',color:'#92400e'}}>
+          💡 Click the <strong>⭐ Admin / Member</strong> button on any card to toggle their admin status. Click ✏️ to rename.
+        </div>
+      </div>
+    );
+  }
+
+  // ── Shared tiny components ─────────────────────────────────────────────────
+  function Avatar({ name, color, size=36, style:extra={} }) {
+    return (
+      <div style={{width:size,height:size,borderRadius:'50%',background:color,display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:700,fontSize:size*0.38,flexShrink:0,...extra}}>
+        {name[0].toUpperCase()}
+      </div>
+    );
+  }
+
+  function AdminBadge() {
+    return <span style={{background:'#dbeafe',color:'#1d4ed8',padding:'1px 6px',borderRadius:4,fontSize:'0.62rem',fontWeight:700}}>ADMIN</span>;
+  }
+
+  function CatBadge({ cat }) {
+    return <span style={{background:CAT_COLORS[cat]+'18',color:CAT_COLORS[cat],padding:'3px 10px',borderRadius:999,fontWeight:600,fontSize:'0.75rem',whiteSpace:'nowrap'}}>{cat}</span>;
+  }
+
+  function MiniStat({ label, value, color }) {
+    return (
+      <div style={{background:'#f9fafb',borderRadius:8,padding:'8px 10px'}}>
+        <div style={{fontSize:'0.67rem',color:'#9ca3af',fontWeight:600,marginBottom:2}}>{label}</div>
+        <div style={{fontWeight:700,color: color||'#1f2937',fontSize:'0.88rem'}}>{value}</div>
+      </div>
+    );
+  }
+
+  function Field({ label, children }) {
+    return (
+      <div>
+        <label style={{display:'block',fontWeight:600,color:'#374151',marginBottom:6,fontSize:'0.875rem'}}>{label}</label>
+        {children}
+      </div>
+    );
+  }
+
+  function PrimaryBtn({ children, style:extra={}, ...rest }) {
+    return (
+      <button {...rest} style={{background:'#4f46e5',color:'white',borderRadius:9,padding:'9px 20px',fontWeight:700,fontSize:'0.9rem',transition:'background .15s',...extra}}
+        onMouseEnter={e=>e.target.style.background='#4338ca'}
+        onMouseLeave={e=>e.target.style.background='#4f46e5'}>
+        {children}
+      </button>
+    );
+  }
+
+  function SectionTitle({ children, style:extra={} }) {
+    return <h2 style={{fontSize:'1.15rem',fontWeight:800,color:'#1f2937',marginBottom:18,...extra}}>{children}</h2>;
+  }
+
+  function EmptyState({ text }) {
+    return <div style={{textAlign:'center',color:'#9ca3af',padding:'28px 0',fontSize:'0.875rem'}}>{text}</div>;
+  }
+
+  // ── Shared style objects ───────────────────────────────────────────────────
+  const inputStyle = { width:'100%', padding:'10px 12px', border:'1px solid #d1d5db', borderRadius:8, fontSize:'0.9rem', background:'white' };
+  const selStyle   = { padding:'9px 12px', border:'1px solid #d1d5db', borderRadius:8, fontSize:'0.875rem', background:'white', cursor:'pointer' };
+  const td         = { padding:'11px 14px' };
+
+  // ── Mount ──────────────────────────────────────────────────────────────────
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
