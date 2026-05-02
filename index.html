@@ -8,6 +8,23 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-storage-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyDrpK8R3h7BM9kR22l_1PVSzVzJK_abYlM",
+      authDomain: "expense-manager-204.firebaseapp.com",
+      projectId: "expense-manager-204",
+      storageBucket: "expense-manager-204.firebasestorage.app",
+      messagingSenderId: "345105807048",
+      appId: "1:345105807048:web:3cad5008910151adcb17fd",
+      measurementId: "G-BVYHZ7EDXQ"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const storage = firebase.storage();
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #eef2ff; font-family: 'Segoe UI', system-ui, sans-serif; color: #1f2937; min-height: 100vh; }
@@ -42,15 +59,15 @@
   const MEMBER_COLORS = ['#4f46e5','#06b6d4','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316'];
 
   const DEFAULT_MEMBERS = [
-    {id:'1',name:'Rahul',isAdmin:true,isMessMember:true},
-    {id:'2',name:'Amit',isAdmin:false,isMessMember:true},
-    {id:'3',name:'Suresh',isAdmin:false,isMessMember:true},
-    {id:'4',name:'Priya',isAdmin:false,isMessMember:true},
-    {id:'5',name:'Vikram',isAdmin:false,isMessMember:true},
-    {id:'6',name:'Neha',isAdmin:false,isMessMember:true},
-    {id:'7',name:'Karan',isAdmin:false,isMessMember:true},
-    {id:'8',name:'Divya',isAdmin:false,isMessMember:false},
-    {id:'9',name:'Rohan',isAdmin:false,isMessMember:false},
+    {id:'1',name:'Rahul',isAdmin:true,isMessMember:true,pin:'1234'},
+    {id:'2',name:'Amit',isAdmin:false,isMessMember:true,pin:'1234'},
+    {id:'3',name:'Suresh',isAdmin:false,isMessMember:true,pin:'1234'},
+    {id:'4',name:'Priya',isAdmin:false,isMessMember:true,pin:'1234'},
+    {id:'5',name:'Vikram',isAdmin:false,isMessMember:true,pin:'1234'},
+    {id:'6',name:'Neha',isAdmin:false,isMessMember:true,pin:'1234'},
+    {id:'7',name:'Karan',isAdmin:false,isMessMember:true,pin:'1234'},
+    {id:'8',name:'Divya',isAdmin:false,isMessMember:false,pin:'1234'},
+    {id:'9',name:'Rohan',isAdmin:false,isMessMember:false,pin:'1234'},
   ];
 
   const genId  = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -62,18 +79,63 @@
   function App() {
     const now = new Date();
 
-    const [members,  setMembers]  = useState(() => JSON.parse(localStorage.getItem('fm_members')  || 'null') || DEFAULT_MEMBERS);
-    const [expenses, setExpenses] = useState(() => JSON.parse(localStorage.getItem('fm_expenses') || '[]'));
-    const [contributions, setContributions] = useState(() => JSON.parse(localStorage.getItem('fm_contributions') || '[]'));
-    const [config,   setConfigRaw]= useState(() => JSON.parse(localStorage.getItem('fm_config')   || '{}'));
+    const [members,  setMembersState]  = useState(DEFAULT_MEMBERS);
+    const [expenses, setExpensesState] = useState([]);
+    const [contributions, setContributionsState] = useState([]);
+    const [jointBills, setJointBillsState] = useState([]);
+    const [cookAttendance, setCookAttendanceState] = useState({});
+    const [config,   setConfigRawState]= useState({});
+    const [currentUser, setCurrentUser] = useState(() => JSON.parse(localStorage.getItem('fm_current_user') || 'null'));
     const [tab,      setTab]      = useState('dashboard');
     const [selMonth, setSelMonth] = useState(now.getMonth());
     const [selYear,  setSelYear]  = useState(now.getFullYear());
+    const [loadingDb, setLoadingDb] = useState(true);
 
-    useEffect(() => { localStorage.setItem('fm_members',  JSON.stringify(members));  }, [members]);
-    useEffect(() => { localStorage.setItem('fm_expenses', JSON.stringify(expenses)); }, [expenses]);
-    useEffect(() => { localStorage.setItem('fm_contributions', JSON.stringify(contributions)); }, [contributions]);
-    useEffect(() => { localStorage.setItem('fm_config',   JSON.stringify(config));   }, [config]);
+    useEffect(() => {
+      let u1 = db.collection('app').doc('members').onSnapshot(d => d.exists && setMembersState(d.data().list));
+      let u2 = db.collection('app').doc('expenses').onSnapshot(d => d.exists && setExpensesState(d.data().list));
+      let u3 = db.collection('app').doc('contributions').onSnapshot(d => d.exists && setContributionsState(d.data().list));
+      let u4 = db.collection('app').doc('jointBills').onSnapshot(d => d.exists && setJointBillsState(d.data().list));
+      let u5 = db.collection('app').doc('cookAttendance').onSnapshot(d => d.exists && setCookAttendanceState(d.data().data));
+      let u6 = db.collection('app').doc('config').onSnapshot(d => d.exists && setConfigRawState(d.data().data));
+      
+      const to = setTimeout(() => setLoadingDb(false), 800);
+      return () => { u1(); u2(); u3(); u4(); u5(); u6(); clearTimeout(to); };
+    }, []);
+
+    useEffect(() => { localStorage.setItem('fm_current_user', JSON.stringify(currentUser)); }, [currentUser]);
+
+    const membersRef = useRef(members); useEffect(()=>{membersRef.current=members},[members]);
+    const expensesRef = useRef(expenses); useEffect(()=>{expensesRef.current=expenses},[expenses]);
+    const contrRef = useRef(contributions); useEffect(()=>{contrRef.current=contributions},[contributions]);
+    const jointBillsRef = useRef(jointBills); useEffect(()=>{jointBillsRef.current=jointBills},[jointBills]);
+    const cookRef = useRef(cookAttendance); useEffect(()=>{cookRef.current=cookAttendance},[cookAttendance]);
+    const configRef = useRef(config); useEffect(()=>{configRef.current=config},[config]);
+
+    const setMembers = (upd) => {
+      const next = typeof upd === 'function' ? upd(membersRef.current) : upd;
+      setMembersState(next); db.collection('app').doc('members').set({list: next});
+    };
+    const setExpenses = (upd) => {
+      const next = typeof upd === 'function' ? upd(expensesRef.current) : upd;
+      setExpensesState(next); db.collection('app').doc('expenses').set({list: next});
+    };
+    const setContributions = (upd) => {
+      const next = typeof upd === 'function' ? upd(contrRef.current) : upd;
+      setContributionsState(next); db.collection('app').doc('contributions').set({list: next});
+    };
+    const setJointBills = (upd) => {
+      const next = typeof upd === 'function' ? upd(jointBillsRef.current) : upd;
+      setJointBillsState(next); db.collection('app').doc('jointBills').set({list: next});
+    };
+    const setCookAttendance = (upd) => {
+      const next = typeof upd === 'function' ? upd(cookRef.current) : upd;
+      setCookAttendanceState(next); db.collection('app').doc('cookAttendance').set({data: next});
+    };
+    const setConfigRaw = (upd) => {
+      const next = typeof upd === 'function' ? upd(configRef.current) : upd;
+      setConfigRawState(next); db.collection('app').doc('config').set({data: next});
+    };
 
     const getConfig = (mo, yr) => ({ rent:3000, mess:3000, ...config[mKey(mo,yr)] });
     const setConfig = (mo, yr, upd) => setConfigRaw(p => ({ ...p, [mKey(mo,yr)]: { ...getConfig(mo,yr), ...upd } }));
@@ -88,18 +150,33 @@
     const deleteContribution = (id)    => setContributions(p => p.filter(c => c.id!==id));
     const monthContr         = (mo, yr) => contributions.filter(c => { const d=new Date(c.date); return d.getMonth()===mo && d.getFullYear()===yr; });
 
-    const shared = { members, selMonth, selYear, setSelMonth, setSelYear, getConfig, setConfig, monthExp, monthContr };
+    const addJointBill    = (b)     => setJointBills(p => [{ ...b, id:genId() }, ...p]);
+    const updateJointBill = (id, u) => setJointBills(p => p.map(b => b.id===id ? {...b,...u} : b));
+    const deleteJointBill = (id)    => setJointBills(p => p.filter(b => b.id!==id));
+    const monthJointBills = (mo, yr) => jointBills.filter(b => { const d=new Date(b.date); return d.getMonth()===mo && d.getFullYear()===yr; });
+
+    const shared = { members, selMonth, selYear, setSelMonth, setSelYear, getConfig, setConfig, monthExp, monthContr, currentUser, setCookAttendance, cookAttendance, jointBills, monthJointBills, addJointBill, updateJointBill, deleteJointBill };
 
     const tabs = [
       {id:'dashboard', label:'🏠 Dashboard'},
-      {id:'add',       label:'➕ Add Expense'},
-      {id:'add-contr', label:'➕ Add Deposit'},
-      {id:'all',       label:'📋 All Expenses'},
-      {id:'all-contr', label:'💵 All Deposits'},
-      {id:'summary',   label:'📊 Monthly Summary'},
-      {id:'charts',    label:'📈 Charts'},
-      {id:'members',   label:'👥 Members'},
+      {id:'add',       label:'➕ Add Entry'},
+      {id:'ledger',    label:'📋 Ledger'},
+      {id:'analytics', label:'📊 Analytics'},
+      {id:'manage',    label:'👥 Manage'},
     ];
+
+    if (loadingDb) {
+      return (
+        <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f3f4f6',flexDirection:'column'}}>
+          <div style={{fontSize:'3rem',marginBottom:16}}>☁️</div>
+          <h2 style={{color:'#4f46e5',fontWeight:800}}>Connecting to Firebase...</h2>
+        </div>
+      );
+    }
+
+    if (!currentUser) {
+      return <LoginScreen members={members} onLogin={setCurrentUser} />;
+    }
 
     return (
       <div style={{minHeight:'100vh'}}>
@@ -110,8 +187,15 @@
               <h1 style={{fontSize:'1.45rem',fontWeight:800,letterSpacing:'-0.4px'}}>🏠 FlatMate Expense Manager</h1>
               <p style={{opacity:.75,fontSize:'0.82rem',marginTop:2}}>3 BHK &nbsp;·&nbsp; {members.length} Members</p>
             </div>
-            <div style={{background:'rgba(255,255,255,0.15)',borderRadius:10,padding:'8px 16px',fontSize:'0.82rem',fontWeight:600}}>
-              {MONTHS[selMonth]} {selYear}
+            <div style={{display:'flex',gap:16,alignItems:'center'}}>
+              <div style={{background:'rgba(255,255,255,0.15)',borderRadius:10,padding:'8px 16px',fontSize:'0.82rem',fontWeight:600}}>
+                {MONTHS[selMonth]} {selYear}
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:8,background:'rgba(255,255,255,0.15)',borderRadius:10,padding:'4px 12px',fontSize:'0.82rem',fontWeight:600}}>
+                <span style={{opacity:0.8}}>Logged in: </span>
+                <span>{currentUser.name} {currentUser.isAdmin && '⭐'}</span>
+                <button onClick={()=>{setCurrentUser(null);setTab('dashboard');}} style={{marginLeft:8,background:'white',color:'#4f46e5',padding:'4px 10px',borderRadius:6,fontWeight:700,fontSize:'0.75rem'}}>🚪 Logout</button>
+              </div>
             </div>
           </div>
         </div>
@@ -133,36 +217,101 @@
         {/* Page */}
         <div style={{maxWidth:1140,margin:'0 auto',padding:'22px 16px'}} className="fade-in" key={tab}>
           {tab==='dashboard' && <Dashboard {...shared} expenses={expenses} contributions={contributions} />}
-          {tab==='add'       && <AddExpenseForm {...shared} addExpense={addExpense} />}
-          {tab==='add-contr' && <AddContributionForm {...shared} addContribution={addContribution} />}
-          {tab==='all'       && <AllExpenses expenses={expenses} members={members} updateExpense={updateExpense} deleteExpense={deleteExpense} />}
-          {tab==='all-contr' && <AllContributions contributions={contributions} members={members} updateContribution={updateContribution} deleteContribution={deleteContribution} />}
-          {tab==='summary'   && <MonthlySummary {...shared} />}
-          {tab==='charts'    && <Charts {...shared} expenses={expenses} />}
-          {tab==='members'   && <MembersTab members={members} setMembers={setMembers} />}
+          {tab==='add'       && <AddEntryTab {...shared} addExpense={addExpense} addContribution={addContribution} />}
+          {tab==='ledger'    && <LedgerTab {...shared} expenses={expenses} contributions={contributions} updateExpense={updateExpense} deleteExpense={deleteExpense} updateContribution={updateContribution} deleteContribution={deleteContribution} />}
+          {tab==='analytics' && <AnalyticsTab {...shared} expenses={expenses} />}
+          {tab==='manage'    && <ManageTab {...shared} setMembers={setMembers} />}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Tab Wrappers ───────────────────────────────────────────────────────────
+  function SubTabNav({ tabs, active, onChange }) {
+    return (
+      <div style={{display:'flex',gap:10,marginBottom:20,background:'#f3f4f6',padding:4,borderRadius:10,width:'fit-content'}}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={()=>onChange(t.id)} style={{padding:'8px 16px',borderRadius:8,background:active===t.id?'white':'transparent',color:active===t.id?'#4f46e5':'#6b7280',fontWeight:700,boxShadow:active===t.id?'0 1px 3px rgba(0,0,0,0.1)':'none',transition:'all 0.2s',fontSize:'0.9rem'}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  function AddEntryTab(props) {
+    const [subTab, setSubTab] = useState('expense');
+    return (
+      <div>
+        <SubTabNav active={subTab} onChange={setSubTab} tabs={[{id:'expense',label:'Log Expense'},{id:'deposit',label:'Log Deposit'}]} />
+        <div className="fade-in" key={subTab}>
+          {subTab === 'expense' ? <AddExpenseForm {...props} /> : <AddContributionForm {...props} />}
+        </div>
+      </div>
+    );
+  }
+
+  function LedgerTab(props) {
+    const [subTab, setSubTab] = useState('indv');
+    return (
+      <div>
+        <SubTabNav active={subTab} onChange={setSubTab} tabs={[{id:'indv',label:'Individual Expenses'},{id:'joint',label:'Flat\'s Joint Bills'},{id:'deps',label:'All Deposits'}]} />
+        <div className="fade-in" key={subTab}>
+          {subTab === 'indv' && <AllExpenses {...props} />}
+          {subTab === 'joint' && <JointBillsTab {...props} />}
+          {subTab === 'deps' && <AllContributions {...props} />}
+        </div>
+      </div>
+    );
+  }
+
+  function AnalyticsTab(props) {
+    const [subTab, setSubTab] = useState('summary');
+    return (
+      <div>
+        <SubTabNav active={subTab} onChange={setSubTab} tabs={[{id:'summary',label:'Monthly Summary'},{id:'charts',label:'Charts'}]} />
+        <div className="fade-in" key={subTab}>
+          {subTab === 'summary' && <MonthlySummary {...props} />}
+          {subTab === 'charts' && <Charts {...props} />}
+        </div>
+      </div>
+    );
+  }
+
+  function ManageTab(props) {
+    const [subTab, setSubTab] = useState('members');
+    return (
+      <div>
+        <SubTabNav active={subTab} onChange={setSubTab} tabs={[{id:'members',label:'Members'},{id:'cook',label:'Cook Attendance'}]} />
+        <div className="fade-in" key={subTab}>
+          {subTab === 'members' && <MembersTab {...props} />}
+          {subTab === 'cook' && <CookTab {...props} />}
         </div>
       </div>
     );
   }
 
   // ── Dashboard ──────────────────────────────────────────────────────────────
-  function Dashboard({ members, expenses, contributions, selMonth, selYear, getConfig, monthExp, monthContr }) {
+  function Dashboard({ members, expenses, contributions, jointBills, selMonth, selYear, getConfig, monthExp, monthContr, monthJointBills }) {
     const cfg  = getConfig(selMonth, selYear);
     const mexp = monthExp(selMonth, selYear);
     const mcontr = monthContr(selMonth, selYear);
+    const mJointBills = monthJointBills(selMonth, selYear);
     
     // All-time balances
+    const totalAllTimeJointBills = jointBills.reduce((s,b) => s + Number(b.amount), 0);
     const totalAllTimeContributions = contributions.reduce((s,c) => s + Number(c.rentAmount || 0) + Number(c.messAmount || 0), 0);
     const totalAllTimeClaims        = expenses.reduce((s,e) => s + Number(e.amount), 0);
-    const availableBalance          = totalAllTimeContributions - totalAllTimeClaims;
+    const availableBalance          = totalAllTimeContributions - totalAllTimeClaims - totalAllTimeJointBills;
 
     const recentExpenses = expenses.slice(0, 10);
 
     const memberSummary = members.map(m => {
       const spent      = mexp.filter(e=>e.memberId===m.id).reduce((s,e)=>s+Number(e.amount),0);
       const memberContr= mcontr.filter(c=>c.memberId===m.id).reduce((s,c)=>s+Number(c.rentAmount||0)+Number(c.messAmount||0), 0);
-      const balance    = memberContr - spent;
-      return { ...m, spent, memberContr, balance };
+      const shareOfJointBills = mJointBills.filter(b => b.applicableMembers?.includes(m.id)).reduce((s, b) => s + (Number(b.amount) / (b.applicableMembers?.length || 1)), 0);
+      const balance    = memberContr - spent - shareOfJointBills;
+      return { ...m, spent, memberContr, shareOfJointBills, balance };
     });
 
     return (
@@ -192,8 +341,8 @@
                 </div>
                 <div style={{textAlign:'right'}}>
                   <div style={{fontWeight:700,color: m.spent>0 ? '#ef4444' : '#9ca3af',fontSize:'0.9rem'}}>{inr(m.spent)} claimed</div>
-                  <div style={{fontSize:'0.7rem',color: m.balance<0 ? '#ef4444' : '#10b981', fontWeight:600}}>
-                    {m.balance<0 ? `Refund Due: ${inr(Math.abs(m.balance))}` : `In Pool: ${inr(m.balance)}`}
+                  <div style={{fontSize:'0.75rem',color: m.balance<0 ? '#ef4444' : '#10b981', fontWeight:600}}>
+                    {m.balance<0 ? `Refund Due: ${inr(Math.abs(Math.round(m.balance)))}` : `In Pool: ${inr(Math.round(m.balance))}`}
                   </div>
                 </div>
               </div>
@@ -246,16 +395,76 @@
   }
 
   // ── Add Expense Form ───────────────────────────────────────────────────────
-  function AddExpenseForm({ members, addExpense }) {
-    const [form, setForm]    = useState({ memberId: members[0]?.id||'', amount:'', category:'Groceries', description:'', date:today() });
+  function AddExpenseForm({ members, addExpense, addJointBill, currentUser }) {
+    const [expenseType, setExpenseType] = useState('individual'); // 'individual' or 'joint'
+    
+    // Individual form
+    const [form, setForm]    = useState({ memberId: currentUser.isAdmin ? (members[0]?.id||'') : currentUser.id, amount:'', category:'Groceries', description:'', date:today() });
+    
+    // Joint form
+    const JOINT_CATS = ['Rent', 'WiFi Bill', 'Gas (Cylinder)', 'Current / Electricity Bill'];
+    const [jForm, setJForm] = useState({ category: 'Rent', amount: '', date: today() });
+    const [receiptFile, setReceiptFile] = useState(null);
+    const [uploading, setUploading] = useState(false);
+
     const [success, setOk]   = useState(false);
     const f = (k,v) => setForm(p => ({...p,[k]:v}));
+    const jf = (k,v) => setJForm(p => ({...p,[k]:v}));
 
-    const submit = (e) => {
+    const selectedMember = members.find(m => m.id === form.memberId);
+    const isMessMember = selectedMember ? selectedMember.isMessMember : true;
+
+    const submitIndividual = (e) => {
       e.preventDefault();
-      if (!form.memberId || !form.amount || !form.date) return;
+      if (!isMessMember || !form.memberId || !form.amount || !form.date) return;
       addExpense({ ...form, amount: Number(form.amount) });
-      setForm({ memberId: members[0]?.id||'', amount:'', category:'Groceries', description:'', date:today() });
+      setForm({ ...form, amount:'', description:'' });
+      showSuccess();
+    };
+
+    const submitJoint = async (e) => {
+      e.preventDefault();
+      if (!jForm.amount || !jForm.date) return;
+      setUploading(true);
+      
+      let receiptUrl = '';
+      if (receiptFile) {
+        try {
+          const ext = receiptFile.name.split('.').pop();
+          const ref = storage.ref().child(`bills/bill_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`);
+          
+          const uploadTask = ref.put(receiptFile);
+          const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out. Ensure Firebase Storage is fully set up in the console.')), 15000));
+          
+          await Promise.race([uploadTask, timeout]);
+          receiptUrl = await ref.getDownloadURL();
+        } catch (err) {
+          alert('Failed to upload receipt: ' + err.message);
+          setUploading(false);
+          return;
+        }
+      }
+
+      const applicableMembers = jForm.category === 'Rent' 
+        ? members.map(m => m.id)
+        : members.filter(m => m.isMessMember).map(m => m.id);
+
+      addJointBill({
+        ...jForm,
+        amount: Number(jForm.amount),
+        receiptUrl,
+        loggedBy: currentUser.id,
+        applicableMembers
+      });
+
+      setJForm({ ...jForm, amount: '' });
+      setReceiptFile(null);
+      if(document.getElementById('receipt-upload')) document.getElementById('receipt-upload').value = '';
+      setUploading(false);
+      showSuccess();
+    };
+
+    const showSuccess = () => {
       setOk(true);
       setTimeout(()=>setOk(false), 2800);
     };
@@ -265,38 +474,78 @@
         <SectionTitle>Log New Expense</SectionTitle>
         <div className="card" style={{padding:28}}>
           {success && <div className="success-toast">✅ Expense logged successfully!</div>}
-          <form onSubmit={submit}>
-            <div style={{display:'grid',gap:16}}>
-              <Field label="Member">
-                <select value={form.memberId} onChange={e=>f('memberId',e.target.value)} required style={selStyle}>
-                  {members.map(m => <option key={m.id} value={m.id}>{m.name}{m.isAdmin?' (Admin)':''}</option>)}
-                </select>
-              </Field>
-              <Field label="Amount (₹)">
-                <input type="number" value={form.amount} onChange={e=>f('amount',e.target.value)} required min="1" placeholder="e.g. 500" style={inputStyle} />
-              </Field>
-              <Field label="Category">
-                <select value={form.category} onChange={e=>f('category',e.target.value)} style={selStyle}>
-                  {CATEGORIES.map(c=><option key={c}>{c}</option>)}
-                </select>
-              </Field>
-              <Field label="Description (optional)">
-                <input type="text" value={form.description} onChange={e=>f('description',e.target.value)} placeholder="e.g. Bought vegetables from market" style={inputStyle} />
-              </Field>
-              <Field label="Date">
-                <input type="date" value={form.date} onChange={e=>f('date',e.target.value)} required style={inputStyle} />
-              </Field>
-              <PrimaryBtn style={{marginTop:4,width:'100%',padding:13,fontSize:'1rem'}}>Add Expense</PrimaryBtn>
+          
+          {currentUser.isAdmin && (
+            <div style={{display:'flex',gap:10,marginBottom:20,background:'#f3f4f6',padding:4,borderRadius:10}}>
+              <button onClick={()=>setExpenseType('individual')} style={{flex:1,padding:'8px 0',borderRadius:8,background:expenseType==='individual'?'white':'transparent',color:expenseType==='individual'?'#4f46e5':'#6b7280',fontWeight:700,boxShadow:expenseType==='individual'?'0 1px 3px rgba(0,0,0,0.1)':'none',transition:'all 0.2s'}}>Individual Expense</button>
+              <button onClick={()=>setExpenseType('joint')} style={{flex:1,padding:'8px 0',borderRadius:8,background:expenseType==='joint'?'white':'transparent',color:expenseType==='joint'?'#4f46e5':'#6b7280',fontWeight:700,boxShadow:expenseType==='joint'?'0 1px 3px rgba(0,0,0,0.1)':'none',transition:'all 0.2s'}}>Flat's Joint Bill</button>
             </div>
-          </form>
+          )}
+
+          {expenseType === 'individual' ? (
+            <form onSubmit={submitIndividual}>
+              <div style={{display:'grid',gap:16}}>
+                <Field label="Member">
+                  <select value={form.memberId} onChange={e=>f('memberId',e.target.value)} required disabled={!currentUser.isAdmin} style={{...selStyle, background: currentUser.isAdmin ? 'white' : '#f3f4f6'}}>
+                    {members.map(m => <option key={m.id} value={m.id}>{m.name}{m.isAdmin?' (Admin)':''}</option>)}
+                  </select>
+                </Field>
+                <Field label="Amount (₹)">
+                  <input type="number" value={form.amount} onChange={e=>f('amount',e.target.value)} required min="1" placeholder="e.g. 500" style={inputStyle} />
+                </Field>
+                <Field label="Category">
+                  <select value={form.category} onChange={e=>f('category',e.target.value)} style={selStyle}>
+                    {CATEGORIES.map(c=><option key={c}>{c}</option>)}
+                  </select>
+                </Field>
+                <Field label="Description (optional)">
+                  <input type="text" value={form.description} onChange={e=>f('description',e.target.value)} placeholder="e.g. Bought vegetables from market" style={inputStyle} />
+                </Field>
+                <Field label="Date">
+                  <input type="date" value={form.date} onChange={e=>f('date',e.target.value)} required style={inputStyle} />
+                </Field>
+                {!isMessMember && (
+                  <div style={{background:'#fef2f2',color:'#991b1b',padding:'12px 16px',borderRadius:8,fontSize:'0.85rem',fontWeight:600}}>
+                    ⚠️ This member is not part of the mess and cannot claim any expenses.
+                  </div>
+                )}
+                <PrimaryBtn disabled={!isMessMember} style={{marginTop:4,width:'100%',padding:13,fontSize:'1rem', opacity: isMessMember ? 1 : 0.5, cursor: isMessMember ? 'pointer' : 'not-allowed'}}>Add Individual Expense</PrimaryBtn>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={submitJoint}>
+              <div style={{display:'grid',gap:16}}>
+                <div style={{background:'#eff6ff',color:'#1e3a8a',padding:'12px 16px',borderRadius:8,fontSize:'0.85rem',fontWeight:600,marginBottom:8}}>
+                  ℹ️ Joint bills are automatically split among tenants and deducted from their pool. Rent is split among all tenants, other bills are split only among members in the mess.
+                </div>
+                <Field label="Bill Category">
+                  <select value={jForm.category} onChange={e=>jf('category',e.target.value)} style={selStyle}>
+                    {JOINT_CATS.map(c=><option key={c}>{c}</option>)}
+                  </select>
+                </Field>
+                <Field label="Total Bill Amount (₹)">
+                  <input type="number" value={jForm.amount} onChange={e=>jf('amount',e.target.value)} required min="1" placeholder="e.g. 1500" style={inputStyle} />
+                </Field>
+                <Field label="Date">
+                  <input type="date" value={jForm.date} onChange={e=>jf('date',e.target.value)} required style={inputStyle} />
+                </Field>
+                <Field label="Upload Receipt (Photo/Doc)">
+                  <input type="file" id="receipt-upload" accept="image/*,.pdf" onChange={e=>setReceiptFile(e.target.files[0])} style={{...inputStyle, padding:'9px 12px'}} />
+                </Field>
+                <PrimaryBtn disabled={uploading} style={{marginTop:4,width:'100%',padding:13,fontSize:'1rem', opacity: uploading ? 0.7 : 1}}>
+                  {uploading ? 'Uploading & Saving...' : 'Add Joint Bill'}
+                </PrimaryBtn>
+              </div>
+            </form>
+          )}
         </div>
       </div>
     );
   }
 
   // ── Add Contribution Form ──────────────────────────────────────────────────
-  function AddContributionForm({ members, addContribution }) {
-    const [form, setForm]    = useState({ memberId: members[0]?.id||'', rentAmount:'', messAmount:'', date:today() });
+  function AddContributionForm({ members, addContribution, currentUser }) {
+    const [form, setForm]    = useState({ memberId: currentUser.isAdmin ? (members[0]?.id||'') : currentUser.id, rentAmount:'', messAmount:'', date:today() });
     const [success, setOk]   = useState(false);
     const f = (k,v) => setForm(p => ({...p,[k]:v}));
 
@@ -310,7 +559,7 @@
         rentAmount: Number(form.rentAmount) || 0, 
         messAmount: Number(form.messAmount) || 0 
       });
-      setForm({ memberId: members[0]?.id||'', rentAmount:'', messAmount:'', date:today() });
+      setForm({ memberId: currentUser.isAdmin ? (members[0]?.id||'') : currentUser.id, rentAmount:'', messAmount:'', date:today() });
       setOk(true);
       setTimeout(()=>setOk(false), 2800);
     };
@@ -323,7 +572,7 @@
           <form onSubmit={submit}>
             <div style={{display:'grid',gap:16}}>
               <Field label="Member">
-                <select value={form.memberId} onChange={e=>f('memberId',e.target.value)} required style={selStyle}>
+                <select value={form.memberId} onChange={e=>f('memberId',e.target.value)} required disabled={!currentUser.isAdmin} style={{...selStyle, background: currentUser.isAdmin ? 'white' : '#f3f4f6'}}>
                   {members.map(m => <option key={m.id} value={m.id}>{m.name}{m.isAdmin?' (Admin)':''}</option>)}
                 </select>
               </Field>
@@ -345,7 +594,7 @@
   }
 
   // ── All Contributions ──────────────────────────────────────────────────────
-  function AllContributions({ contributions, members, updateContribution, deleteContribution }) {
+  function AllContributions({ contributions, members, updateContribution, deleteContribution, currentUser }) {
     const [editId,   setEditId]   = useState(null);
     const [editForm, setEditForm] = useState({});
     const [filter,   setFilter]   = useState({member:'all', month:'all'});
@@ -447,8 +696,12 @@
                             <td style={{...td,color:'#374151'}}>{inr(c.messAmount||0)}</td>
                             <td style={{...td,fontWeight:700,color:'#4f46e5'}}>{inr(Number(c.rentAmount||0)+Number(c.messAmount||0))}</td>
                             <td style={{...td,whiteSpace:'nowrap'}}>
-                              <button onClick={()=>startEdit(c)} style={{background:'#fef3c7',color:'#92400e',borderRadius:6,padding:'4px 12px',fontWeight:600,fontSize:'0.8rem',marginRight:6}}>✏️ Edit</button>
-                              <button onClick={()=>{ if(confirm(`Delete this deposit?`)) deleteContribution(c.id); }} style={{background:'#fee2e2',color:'#b91c1c',borderRadius:6,padding:'4px 10px',fontWeight:600,fontSize:'0.8rem'}}>🗑️</button>
+                              {(currentUser.isAdmin || currentUser.id === c.memberId) && (
+                                <>
+                                  <button onClick={()=>startEdit(c)} style={{background:'#fef3c7',color:'#92400e',borderRadius:6,padding:'4px 12px',fontWeight:600,fontSize:'0.8rem',marginRight:6}}>✏️ Edit</button>
+                                  <button onClick={()=>{ if(confirm(`Delete this deposit?`)) deleteContribution(c.id); }} style={{background:'#fee2e2',color:'#b91c1c',borderRadius:6,padding:'4px 10px',fontWeight:600,fontSize:'0.8rem'}}>🗑️</button>
+                                </>
+                              )}
                             </td>
                           </>
                         )}
@@ -464,7 +717,7 @@
   }
 
   // ── All Expenses ───────────────────────────────────────────────────────────
-  function AllExpenses({ expenses, members, updateExpense, deleteExpense }) {
+  function AllExpenses({ expenses, members, updateExpense, deleteExpense, currentUser }) {
     const [editId,   setEditId]   = useState(null);
     const [editForm, setEditForm] = useState({});
     const [filter,   setFilter]   = useState({member:'all',category:'all',search:'',month:'all'});
@@ -583,8 +836,12 @@
                             <td style={{...td,color:'#374151'}}>{e.description||<span style={{color:'#d1d5db'}}>—</span>}</td>
                             <td style={{...td,fontWeight:700,color:'#4f46e5'}}>{inr(e.amount)}</td>
                             <td style={{...td,whiteSpace:'nowrap'}}>
-                              <button onClick={()=>startEdit(e)} style={{background:'#fef3c7',color:'#92400e',borderRadius:6,padding:'4px 12px',fontWeight:600,fontSize:'0.8rem',marginRight:6}}>✏️ Edit</button>
-                              <button onClick={()=>{ if(confirm(`Delete this ₹${e.amount} expense?`)) deleteExpense(e.id); }} style={{background:'#fee2e2',color:'#b91c1c',borderRadius:6,padding:'4px 10px',fontWeight:600,fontSize:'0.8rem'}}>🗑️</button>
+                              {(currentUser.isAdmin || currentUser.id === e.memberId) && (
+                                <>
+                                  <button onClick={()=>startEdit(e)} style={{background:'#fef3c7',color:'#92400e',borderRadius:6,padding:'4px 12px',fontWeight:600,fontSize:'0.8rem',marginRight:6}}>✏️ Edit</button>
+                                  <button onClick={()=>{ if(confirm(`Delete this ₹${e.amount} expense?`)) deleteExpense(e.id); }} style={{background:'#fee2e2',color:'#b91c1c',borderRadius:6,padding:'4px 10px',fontWeight:600,fontSize:'0.8rem'}}>🗑️</button>
+                                </>
+                              )}
                             </td>
                           </>
                         )}
@@ -607,8 +864,58 @@
     );
   }
 
+  // ── Joint Bills Tab ────────────────────────────────────────────────────────
+  function JointBillsTab({ jointBills, members, deleteJointBill, currentUser }) {
+    return (
+      <div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+          <SectionTitle style={{margin:0}}>Flat's Joint Bills</SectionTitle>
+          <div style={{fontWeight:700,color:'#4f46e5',background:'#eef2ff',padding:'6px 14px',borderRadius:8,fontSize:'0.88rem'}}>
+            Total: {inr(jointBills.reduce((s,b)=>s+Number(b.amount),0))}
+          </div>
+        </div>
+        <div style={{display:'grid',gap:16}}>
+          {jointBills.length === 0 ? (
+            <EmptyState text="No joint bills logged yet" />
+          ) : jointBills.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(b => {
+            const logger = members.find(m=>m.id===b.loggedBy)?.name || 'Admin';
+            const splitAmount = Number(b.amount) / (b.applicableMembers?.length || 1);
+            return (
+              <div key={b.id} className="card" style={{padding:20,display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:16}}>
+                <div>
+                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
+                    <CatBadge cat={b.category} />
+                    <span style={{fontWeight:700,fontSize:'1.1rem',color:'#1f2937'}}>{inr(b.amount)}</span>
+                  </div>
+                  <div style={{fontSize:'0.82rem',color:'#6b7280'}}>
+                    Logged by <span style={{fontWeight:600}}>{logger}</span> on {new Date(b.date).toLocaleDateString('en-IN')}
+                  </div>
+                  <div style={{fontSize:'0.82rem',color:'#4b5563',marginTop:6,background:'#f3f4f6',padding:'4px 8px',borderRadius:6,display:'inline-block'}}>
+                    Split among {b.applicableMembers?.length || 0} members ({inr(Math.round(splitAmount))} each)
+                  </div>
+                </div>
+                <div style={{display:'flex',gap:10}}>
+                  {b.receiptUrl && (
+                    <a href={b.receiptUrl} target="_blank" rel="noreferrer" style={{background:'#e0e7ff',color:'#4f46e5',padding:'6px 12px',borderRadius:6,fontSize:'0.8rem',fontWeight:700,textDecoration:'none',display:'inline-block'}}>
+                      📄 View Receipt
+                    </a>
+                  )}
+                  {currentUser.isAdmin && (
+                    <button onClick={()=>{if(confirm('Delete this joint bill?')) deleteJointBill(b.id);}} style={{background:'#fee2e2',color:'#b91c1c',border:'none',borderRadius:6,padding:'6px 12px',fontSize:'0.8rem',fontWeight:700}}>
+                      🗑️ Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   // ── Monthly Summary ────────────────────────────────────────────────────────
-  function MonthlySummary({ members, selMonth, selYear, setSelMonth, setSelYear, getConfig, setConfig, monthExp, monthContr }) {
+  function MonthlySummary({ members, selMonth, selYear, setSelMonth, setSelYear, getConfig, setConfig, monthExp, monthContr, monthJointBills, currentUser }) {
     const [view,    setView]   = useState('card'); // 'card' | 'table'
     const [editing, setEditing]= useState(null);   // 'rent' | 'mess'
     const [tmpVal,  setTmpVal] = useState('');
@@ -616,16 +923,22 @@
     const cfg  = getConfig(selMonth, selYear);
     const mexp = monthExp(selMonth, selYear);
     const mcontr = monthContr(selMonth, selYear);
-    const totalExpenses = mexp.reduce((s,e)=>s+Number(e.amount),0);
+    const mJointBills = monthJointBills(selMonth, selYear);
+    
+    const totalIndvExpenses = mexp.reduce((s,e)=>s+Number(e.amount),0);
+    const totalJointBills = mJointBills.reduce((s,b)=>s+Number(b.amount),0);
+    const totalExpenses = totalIndvExpenses + totalJointBills;
 
     const rows = members.map((m,i) => {
       const totalClaimed = mexp.filter(e=>e.memberId===m.id).reduce((s,e)=>s+Number(e.amount),0);
+      const shareOfJointBills = mJointBills.filter(b => b.applicableMembers?.includes(m.id)).reduce((s, b) => s + (Number(b.amount) / (b.applicableMembers?.length || 1)), 0);
+
       const mcs = mcontr.filter(c=>c.memberId===m.id);
       const rentPaid = mcs.reduce((s,c)=>s+Number(c.rentAmount||0),0);
       const messPaid = mcs.reduce((s,c)=>s+Number(c.messAmount||0),0);
       const totalContribution = rentPaid + messPaid;
-      const netBalance = totalContribution - totalClaimed; // Positive = money in pool, Negative = owes refund
-      return { ...m, color: MEMBER_COLORS[i%9], totalClaimed, rentPaid, messPaid, totalContribution, netBalance };
+      const netBalance = totalContribution - totalClaimed - shareOfJointBills; // Positive = money in pool, Negative = owes refund
+      return { ...m, color: MEMBER_COLORS[i%9], totalClaimed, shareOfJointBills, rentPaid, messPaid, totalContribution, netBalance };
     });
 
     const startEdit = (field) => { setEditing(field); setTmpVal(String(cfg[field])); };
@@ -669,7 +982,7 @@
               ) : (
                 <div style={{display:'flex',alignItems:'center',gap:6}}>
                   <span style={{fontSize:'1.25rem',fontWeight:800,color:'#1f2937'}}>{inr(cfg[field])}</span>
-                  <button onClick={()=>startEdit(field)} title="Edit" style={{background:'#f3f4f6',borderRadius:7,padding:'4px 7px',color:'#6b7280',fontSize:'0.9rem'}}>✏️</button>
+                  {currentUser.isAdmin && <button onClick={()=>startEdit(field)} title="Edit" style={{background:'#f3f4f6',borderRadius:7,padding:'4px 7px',color:'#6b7280',fontSize:'0.9rem'}}>✏️</button>}
                 </div>
               )}
             </div>
@@ -677,7 +990,7 @@
           <div style={{marginLeft:'auto',textAlign:'right',background:'#eef2ff',borderRadius:10,padding:'10px 18px'}}>
             <div style={{fontSize:'0.72rem',fontWeight:600,color:'#6b7280'}}>Total Expenses This Month</div>
             <div style={{fontSize:'1.5rem',fontWeight:800,color:'#4f46e5'}}>{inr(totalExpenses)}</div>
-            <div style={{fontSize:'0.72rem',color:'#6b7280'}}>{mexp.length} entries</div>
+            <div style={{fontSize:'0.72rem',color:'#6b7280'}}>{mexp.length} indv. | {mJointBills.length} joint</div>
           </div>
         </div>
 
@@ -696,7 +1009,8 @@
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
                   <MiniStat label="Rent Paid"          value={inr(m.rentPaid)} />
                   <MiniStat label="Mess Paid"          value={m.isMessMember ? inr(m.messPaid) : 'N/A'} />
-                  <MiniStat label="Total Claimed"      value={inr(m.totalClaimed)}    color="#ef4444" />
+                  <MiniStat label="Indv. Claimed"      value={inr(m.totalClaimed)}    color="#ef4444" />
+                  <MiniStat label="Joint Bill Share"   value={inr(Math.round(m.shareOfJointBills))} color="#ef4444" />
                   <MiniStat label="Total Contribution" value={inr(m.totalContribution)} color="#10b981" />
                 </div>
                 <div style={{borderTop:'1px solid #f3f4f6',paddingTop:10}}>
@@ -706,12 +1020,12 @@
                   </div>
                   {m.netBalance < 0 && (
                     <div style={{marginTop:6,fontSize:'0.74rem',color:'#ef4444',background:'#fee2e2',borderRadius:6,padding:'4px 8px'}}>
-                      ⚠️ Pool owes this member {inr(Math.abs(m.netBalance))}
+                      ⚠️ Pool owes this member {inr(Math.abs(Math.round(m.netBalance)))}
                     </div>
                   )}
                   {m.netBalance > 0 && (
                     <div style={{marginTop:6,fontSize:'0.74rem',color:'#10b981',background:'#d1fae5',borderRadius:6,padding:'4px 8px'}}>
-                      ✅ Member has {inr(m.netBalance)} in the pool
+                      ✅ Member has {inr(Math.round(m.netBalance))} in the pool
                     </div>
                   )}
                 </div>
@@ -726,7 +1040,7 @@
             <table style={{width:'100%',fontSize:'0.86rem',borderCollapse:'collapse'}}>
               <thead>
                 <tr>
-                  {['Member','Rent Paid (₹)','Mess Paid (₹)','Total Contribution (₹)','Total Claimed (₹)','Net Balance (₹)','Status'].map(h=>(
+                  {['Member','Rent Paid (₹)','Mess Paid (₹)','Total Contribution (₹)','Indv. Claimed (₹)','Joint Share (₹)','Net Balance (₹)','Status'].map(h=>(
                     <th key={h} style={{padding:'12px 14px',textAlign:'left',fontWeight:700,color:'#374151',background:'#f0f4ff',whiteSpace:'nowrap',borderBottom:'2px solid #e0e7ff',fontSize:'0.82rem'}}>{h}</th>
                   ))}
                 </tr>
@@ -747,7 +1061,8 @@
                     <td style={{...td,fontWeight:600}}>{m.isMessMember ? inr(m.messPaid) : <span style={{color:'#9ca3af'}}>N/A</span>}</td>
                     <td style={{...td,fontWeight:800,color:'#10b981'}}>{inr(m.totalContribution)}</td>
                     <td style={{...td,fontWeight:700,color:'#ef4444'}}>{inr(m.totalClaimed)}</td>
-                    <td style={{...td,fontWeight:800,color: m.netBalance<0?'#ef4444':'#1f2937'}}>{inr(m.netBalance)}</td>
+                    <td style={{...td,fontWeight:700,color:'#ef4444'}}>{inr(Math.round(m.shareOfJointBills))}</td>
+                    <td style={{...td,fontWeight:800,color: m.netBalance<0?'#ef4444':'#1f2937'}}>{inr(Math.round(m.netBalance))}</td>
                     <td style={td}>
                       {m.netBalance < 0
                         ? <span style={{background:'#fee2e2',color:'#b91c1c',padding:'3px 10px',borderRadius:999,fontSize:'0.75rem',fontWeight:700}}>Refund Due</span>
@@ -765,7 +1080,8 @@
                   <td style={{...td,fontWeight:800}}>{inr(rows.reduce((s,m)=>s+m.messPaid,0))}</td>
                   <td style={{...td,fontWeight:800,color:'#10b981'}}>{inr(rows.reduce((s,m)=>s+m.totalContribution,0))}</td>
                   <td style={{...td,fontWeight:800,color:'#ef4444'}}>{inr(rows.reduce((s,m)=>s+m.totalClaimed,0))}</td>
-                  <td style={{...td,fontWeight:800}}>{inr(rows.reduce((s,m)=>s+m.netBalance,0))}</td>
+                  <td style={{...td,fontWeight:800,color:'#ef4444'}}>{inr(Math.round(rows.reduce((s,m)=>s+m.shareOfJointBills,0)))}</td>
+                  <td style={{...td,fontWeight:800}}>{inr(Math.round(rows.reduce((s,m)=>s+m.netBalance,0)))}</td>
                   <td></td>
                 </tr>
               </tbody>
@@ -914,7 +1230,7 @@
   }
 
   // ── Members ────────────────────────────────────────────────────────────────
-  function MembersTab({ members, setMembers }) {
+  function MembersTab({ members, setMembers, currentUser }) {
     const [editId,   setEditId]  = useState(null);
     const [editName, setEditName]= useState('');
 
@@ -923,9 +1239,39 @@
     const toggleAdmin= (id) => { setMembers(p=>p.map(m=>m.id===id?{...m,isAdmin:!m.isAdmin}:m)); };
     const toggleMess = (id) => { setMembers(p=>p.map(m=>m.id===id?{...m,isMessMember:!m.isMessMember}:m)); };
 
+    const deleteMember = (id) => {
+      if (id === currentUser.id) {
+        if (members.filter(m => m.isAdmin).length <= 1) {
+          alert('You must delegate the Admin role to someone else before deleting your account.');
+          return;
+        }
+        if (confirm('Are you sure you want to delete your own account? You will be logged out.')) {
+          setMembers(p => p.filter(m => m.id !== id));
+          localStorage.removeItem('fm_current_user');
+          window.location.reload();
+        }
+      } else {
+        if (confirm('Delete this member?')) {
+          setMembers(p => p.filter(m => m.id !== id));
+        }
+      }
+    };
+
+    const addMember = () => {
+      const name = prompt("Enter new member's name:");
+      if (name && name.trim()) {
+        setMembers(p => [...p, { id: genId(), name: name.trim(), isAdmin: false, isMessMember: true, pin: '1234' }]);
+      }
+    };
+
     return (
       <div>
-        <SectionTitle>Members ({members.length})</SectionTitle>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,flexWrap:'wrap',gap:10}}>
+          <SectionTitle style={{margin:0}}>Members ({members.length})</SectionTitle>
+          {currentUser.isAdmin && (
+            <button onClick={addMember} style={{background:'#10b981',color:'white',borderRadius:8,padding:'8px 16px',fontWeight:700,fontSize:'0.85rem',border:'none',cursor:'pointer'}}>➕ Add Member</button>
+          )}
+        </div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(270px,1fr))',gap:14}}>
           {members.map((m,i) => (
             <div key={m.id} className="card" style={{padding:18,display:'flex',alignItems:'center',gap:14}}>
@@ -940,24 +1286,36 @@
                 ) : (
                   <div style={{display:'flex',alignItems:'center',gap:6}}>
                     <span style={{fontWeight:700,color:'#1f2937'}}>{m.name}</span>
-                    <button onClick={()=>startEdit(m)} title="Edit name" style={{background:'none',color:'#9ca3af',fontSize:'0.85rem',borderRadius:5,padding:'2px 4px'}}>✏️</button>
+                    {currentUser.isAdmin && <button onClick={()=>startEdit(m)} title="Edit name" style={{background:'none',color:'#9ca3af',fontSize:'0.85rem',borderRadius:5,padding:'2px 4px',border:'none',cursor:'pointer'}}>✏️</button>}
                   </div>
                 )}
-                <div style={{marginTop:6, display:'flex', gap:6, flexWrap:'wrap'}}>
-                  <button onClick={()=>toggleAdmin(m.id)} style={{background:m.isAdmin?'#dbeafe':'#f3f4f6',color:m.isAdmin?'#1d4ed8':'#6b7280',padding:'3px 12px',borderRadius:999,fontSize:'0.72rem',fontWeight:700,border:'none'}}>
+                <div style={{marginTop:6, display:'flex', gap:6, flexWrap:'wrap', alignItems:'center'}}>
+                  <button 
+                    onClick={() => currentUser.isAdmin && toggleAdmin(m.id)} 
+                    style={{background:m.isAdmin?'#dbeafe':'#f3f4f6',color:m.isAdmin?'#1d4ed8':'#6b7280',padding:'3px 12px',borderRadius:999,fontSize:'0.72rem',fontWeight:700,border:'none',cursor:currentUser.isAdmin?'pointer':'default'}}>
                     {m.isAdmin ? '⭐ Admin' : 'Member'}
                   </button>
-                  <button onClick={()=>toggleMess(m.id)} style={{background:m.isMessMember?'#d1fae5':'#fef2f2',color:m.isMessMember?'#065f46':'#991b1b',padding:'3px 12px',borderRadius:999,fontSize:'0.72rem',fontWeight:700,border:'none'}}>
+                  <button 
+                    onClick={() => currentUser.isAdmin && toggleMess(m.id)} 
+                    style={{background:m.isMessMember?'#d1fae5':'#fef2f2',color:m.isMessMember?'#065f46':'#991b1b',padding:'3px 12px',borderRadius:999,fontSize:'0.72rem',fontWeight:700,border:'none',cursor:currentUser.isAdmin?'pointer':'default'}}>
                     {m.isMessMember ? '🍲 In Mess' : '❌ No Mess'}
                   </button>
+                  
+                  {currentUser.isAdmin && (
+                    <div style={{display:'flex', gap:6, marginLeft:'auto'}}>
+                      <button onClick={()=>deleteMember(m.id)} style={{background:'#fee2e2',color:'#b91c1c',border:'none',borderRadius:6,padding:'4px 8px',fontSize:'0.7rem',fontWeight:600,cursor:'pointer'}}>🗑️ Delete</button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           ))}
         </div>
-        <div style={{marginTop:18,padding:'14px 18px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:10,fontSize:'0.82rem',color:'#92400e'}}>
-          💡 Click the <strong>⭐ Admin / Member</strong> or <strong>🍲 In Mess</strong> buttons on any card to toggle their status. Click ✏️ to rename.
-        </div>
+        {currentUser.isAdmin && (
+          <div style={{marginTop:18,padding:'14px 18px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:10,fontSize:'0.82rem',color:'#92400e'}}>
+            💡 You are an Admin. You can toggle admin status, mess participation, rename, or delete members. Note: You must delegate Admin to someone else before deleting your own account.
+          </div>
+        )}
       </div>
     );
   }
@@ -1013,6 +1371,116 @@
 
   function EmptyState({ text }) {
     return <div style={{textAlign:'center',color:'#9ca3af',padding:'28px 0',fontSize:'0.875rem'}}>{text}</div>;
+  }
+
+  // ── Login Screen ───────────────────────────────────────────────────────────
+  function LoginScreen({ members, onLogin }) {
+    const [selId, setSelId] = useState(members[0]?.id || '');
+    const [pin, setPin] = useState('');
+    const [err, setErr] = useState('');
+
+    const submit = (e) => {
+      e.preventDefault();
+      const m = members.find(m => m.id === selId);
+      const userPin = m?.pin || '1234';
+      if (m && userPin === pin) {
+        onLogin(m);
+      } else {
+        setErr('Incorrect PIN');
+      }
+    };
+
+    return (
+      <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f3f4f6'}}>
+        <div className="card" style={{padding:40,width:'100%',maxWidth:400}}>
+          <div style={{textAlign:'center',marginBottom:24}}>
+            <h1 style={{fontSize:'1.5rem',fontWeight:800,color:'#4f46e5',marginBottom:8}}>🏠 FlatMate Login</h1>
+            <p style={{color:'#6b7280',fontSize:'0.9rem'}}>Select your name and enter your PIN</p>
+          </div>
+          {err && <div style={{background:'#fee2e2',color:'#b91c1c',padding:'10px 14px',borderRadius:8,marginBottom:16,fontSize:'0.85rem',fontWeight:600}}>{err}</div>}
+          <form onSubmit={submit}>
+            <div style={{display:'grid',gap:16}}>
+              <Field label="Who are you?">
+                <select value={selId} onChange={e=>setSelId(e.target.value)} style={selStyle}>
+                  {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              </Field>
+              <Field label="PIN">
+                <input type="password" value={pin} onChange={e=>setPin(e.target.value)} required placeholder="e.g. 1234" style={inputStyle} />
+              </Field>
+              <PrimaryBtn style={{marginTop:8,width:'100%',padding:12}}>Log In</PrimaryBtn>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Cook Attendance Tab ────────────────────────────────────────────────────
+  function CookTab({ selMonth, selYear, cookAttendance, setCookAttendance }) {
+    const daysInMonth = new Date(selYear, selMonth + 1, 0).getDate();
+    
+    // Counters
+    let full=0, half=0, absent=0;
+    for(let d=1; d<=daysInMonth; d++) {
+      const key = `${selYear}-${String(selMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      if(cookAttendance[key]==='full') full++;
+      if(cookAttendance[key]==='half') half++;
+      if(cookAttendance[key]==='absent') absent++;
+    }
+
+    const toggle = (d) => {
+      const key = `${selYear}-${String(selMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const curr = cookAttendance[key];
+      const next = !curr ? 'full' : curr==='full' ? 'half' : curr==='half' ? 'absent' : null;
+      setCookAttendance(p => {
+        const np = {...p};
+        if(next) np[key] = next; else delete np[key];
+        return np;
+      });
+    };
+
+    return (
+      <div>
+        <SectionTitle>👩‍🍳 Cook Attendance — {MONTHS[selMonth]} {selYear}</SectionTitle>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:16,marginBottom:24}}>
+          <div className="card" style={{padding:20,textAlign:'center',background:'#d1fae5'}}>
+            <div style={{fontSize:'1.8rem'}}>🟢</div>
+            <div style={{fontSize:'1.4rem',fontWeight:800,color:'#065f46',marginTop:8}}>{full}</div>
+            <div style={{fontSize:'0.8rem',fontWeight:700,color:'#047857'}}>Full Days</div>
+          </div>
+          <div className="card" style={{padding:20,textAlign:'center',background:'#fef3c7'}}>
+            <div style={{fontSize:'1.8rem'}}>🟡</div>
+            <div style={{fontSize:'1.4rem',fontWeight:800,color:'#92400e',marginTop:8}}>{half}</div>
+            <div style={{fontSize:'0.8rem',fontWeight:700,color:'#b45309'}}>Half Days</div>
+          </div>
+          <div className="card" style={{padding:20,textAlign:'center',background:'#fee2e2'}}>
+            <div style={{fontSize:'1.8rem'}}>🔴</div>
+            <div style={{fontSize:'1.4rem',fontWeight:800,color:'#b91c1c',marginTop:8}}>{absent}</div>
+            <div style={{fontSize:'0.8rem',fontWeight:700,color:'#991b1b'}}>Absent</div>
+          </div>
+        </div>
+
+        <div className="card" style={{padding:24}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:10}}>
+            {Array.from({length: daysInMonth}, (_,i)=>i+1).map(d => {
+              const key = `${selYear}-${String(selMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+              const state = cookAttendance[key];
+              const bg = state==='full' ? '#10b981' : state==='half' ? '#f59e0b' : state==='absent' ? '#ef4444' : '#f3f4f6';
+              const color = state ? 'white' : '#6b7280';
+              return (
+                <button key={d} onClick={()=>toggle(d)} style={{aspectRatio:'1',borderRadius:12,border:'none',background:bg,color,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',cursor:'pointer',transition:'all 0.15s',boxShadow:state?'0 4px 10px rgba(0,0,0,0.1)':'none'}}>
+                  <span style={{fontWeight:800,fontSize:'1.1rem'}}>{d}</span>
+                  <span style={{fontSize:'0.65rem',fontWeight:700,marginTop:2,opacity:0.9}}>
+                    {state==='full'?'FULL':state==='half'?'HALF':state==='absent'?'ABSENT':'Mark'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // ── Shared style objects ───────────────────────────────────────────────────
