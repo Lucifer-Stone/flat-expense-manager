@@ -7,3 +7,8 @@ firebase-debug.log*
 
 # Windows
 Thumbs.db
+
+# IDE and Workspaces
+.vscode/
+.idea/
+*.code-workspace
