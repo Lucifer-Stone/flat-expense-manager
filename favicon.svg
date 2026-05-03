@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+  </defs>
+  <rect width="100" height="100" rx="22" fill="url(#bg)" />
+  <!-- House Roof -->
+  <path d="M50 18 L18 45 L26 45 L26 78 L74 78 L74 45 L82 45 Z" fill="white" />
+  <!-- Door / Money Slot -->
+  <rect x="40" y="55" width="20" height="23" fill="#eef2ff" />
+  <!-- Currency Symbol -->
+  <text x="50" y="73" font-family="system-ui, sans-serif" font-size="18" font-weight="900" fill="#4f46e5" text-anchor="middle">₹</text>
+</svg>
