@@ -1,0 +1,89 @@
+name: Deploy App
+
+# Ships the app AND its security rules together. Deploying the app without the
+# rules is how a project ends up with a hardened client in front of an open
+# database — the rules are the actual security boundary, so they travel with
+# every release.
+#
+# REQUIRED REPOSITORY SECRET:
+#   FIREBASE_SERVICE_ACCOUNT — service-account JSON with the "Firebase Admin"
+#   role (needs Hosting + Rules deploy permissions). See SETUP.md.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'public/**'
+      - 'firestore.rules'
+      - 'storage.rules'
+      - 'firestore.indexes.json'
+      - 'firebase.json'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Guard — bootstrap email must be replaced
+        run: |
+          if grep -q 'REPLACE_ME@gmail.com' firestore.rules; then
+            echo "::error::firestore.rules still contains the placeholder bootstrap email."
+            echo "Edit bootstrapAdminEmail() in firestore.rules and set it to your own Google account."
+            exit 1
+          fi
+
+      - name: Guard — no service-account key inside public/
+        run: |
+          # public/ is served to the open internet. A credential landing here
+          # would be world-readable, so fail the build rather than publish it.
+          if find public -type f \( -name '*.json' -o -name '*.pem' -o -name '*.key' \) | grep -q .; then
+            echo "::error::Unexpected credential-shaped file inside public/:"
+            find public -type f \( -name '*.json' -o -name '*.pem' -o -name '*.key' \)
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci --omit=dev || npm install --omit=dev
+
+      - name: Pre-deploy safety gate
+        # Refuses to ship if Auth is not enabled or the migration has not run.
+        # Both would take the live app down instantly rather than degrade it —
+        # see the comment block in scripts/preflight.mjs.
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node scripts/preflight.mjs
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools@13
+
+      - name: Deploy hosting, Firestore rules, Storage rules and indexes
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/sa.json
+        run: |
+          printf '%s' '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > sa.json
+          firebase deploy \
+            --only hosting,firestore:rules,firestore:indexes,storage \
+            --project expense-manager-204 \
+            --non-interactive
+          rm -f sa.json
+
+      - name: Verify the deployed app is reachable
+        run: |
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://expense-manager-204.web.app/)
+            if [ "$code" = "200" ]; then echo "App is up (HTTP 200)."; exit 0; fi
+            echo "Attempt $i: HTTP $code — retrying in 10s"; sleep 10
+          done
+          echo "::error::App did not return HTTP 200 after deploy."
+          exit 1

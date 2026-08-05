@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlatMate Expense Manager — System Status</title>
+<meta name="description" content="Live availability and data-integrity status for the FlatMate Expense Manager.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%A1%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg:#f8fafc; --card:#ffffff; --border:#e2e8f0; --text:#0f172a; --muted:#64748b;
+    --up:#10b981; --deg:#f59e0b; --down:#ef4444; --none:#e2e8f0; --accent:#4f46e5;
+    --shadow:0 1px 3px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0b1120; --card:#111827; --border:#1f2937; --text:#e5e7eb; --muted:#94a3b8;
+      --none:#1f2937; --shadow:0 1px 3px rgba(0,0,0,.4);
+    }
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;line-height:1.5;padding:0 16px 64px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:860px;margin:0 auto}
+  header{padding:40px 0 28px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header h1{font-size:1.3rem;font-weight:750;letter-spacing:-.02em}
+  header .sub{font-size:.85rem;color:var(--muted)}
+  .banner{border-radius:14px;padding:22px 26px;margin-bottom:28px;display:flex;align-items:center;gap:16px;color:#fff;box-shadow:var(--shadow)}
+  .banner.operational{background:linear-gradient(135deg,#059669,#10b981)}
+  .banner.degraded{background:linear-gradient(135deg,#d97706,#f59e0b)}
+  .banner.major_outage{background:linear-gradient(135deg,#dc2626,#ef4444)}
+  .banner.unknown{background:linear-gradient(135deg,#475569,#64748b)}
+  .banner .dot{width:13px;height:13px;border-radius:50%;background:#fff;flex-shrink:0;box-shadow:0 0 0 5px rgba(255,255,255,.28)}
+  .banner h2{font-size:1.18rem;font-weight:750;letter-spacing:-.015em}
+  .banner p{font-size:.83rem;opacity:.9;margin-top:2px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);margin-bottom:20px;overflow:hidden}
+  .card > h3{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);padding:16px 22px;border-bottom:1px solid var(--border)}
+  .comp{padding:18px 22px;border-bottom:1px solid var(--border)}
+  .comp:last-child{border-bottom:none}
+  .comp-top{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+  .comp-name{font-weight:650;font-size:.95rem}
+  .comp-desc{font-size:.8rem;color:var(--muted);margin-bottom:12px}
+  .pill{font-size:.72rem;font-weight:700;padding:3px 11px;border-radius:999px;white-space:nowrap}
+  .pill.up{background:color-mix(in srgb,var(--up) 15%,transparent);color:var(--up)}
+  .pill.degraded{background:color-mix(in srgb,var(--deg) 18%,transparent);color:var(--deg)}
+  .pill.down{background:color-mix(in srgb,var(--down) 15%,transparent);color:var(--down)}
+  .bars{display:flex;gap:2px;height:32px;align-items:stretch}
+  .bars i{flex:1;border-radius:2px;background:var(--none);min-width:2px;transition:opacity .15s;cursor:default}
+  .bars i:hover{opacity:.65}
+  .bars i.up{background:var(--up)} .bars i.deg{background:var(--deg)} .bars i.down{background:var(--down)}
+  .bars-legend{display:flex;justify-content:space-between;font-size:.71rem;color:var(--muted);margin-top:6px}
+  .metrics{display:flex;gap:22px;flex-wrap:wrap;padding:18px 22px}
+  .metric .v{font-size:1.35rem;font-weight:750;letter-spacing:-.02em}
+  .metric .k{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+  .check{padding:13px 22px;border-bottom:1px solid var(--border);display:flex;gap:11px;align-items:flex-start;font-size:.85rem}
+  .check:last-child{border-bottom:none}
+  .check .ico{flex-shrink:0;font-weight:800;font-size:.68rem;padding:3px 8px;border-radius:5px;margin-top:1px}
+  .check .ico.fail{background:color-mix(in srgb,var(--down) 15%,transparent);color:var(--down)}
+  .check .ico.warn{background:color-mix(in srgb,var(--deg) 18%,transparent);color:var(--deg)}
+  .check .n{font-weight:650;display:block;margin-bottom:2px}
+  .check .d{color:var(--muted);font-size:.82rem}
+  .inc{padding:15px 22px;border-bottom:1px solid var(--border);font-size:.85rem}
+  .inc:last-child{border-bottom:none}
+  .inc .when{font-size:.75rem;color:var(--muted);margin-top:3px}
+  .ok-empty{padding:26px 22px;text-align:center;color:var(--muted);font-size:.86rem}
+  footer{text-align:center;font-size:.76rem;color:var(--muted);padding-top:12px;line-height:1.8}
+  footer a{color:var(--accent)}
+  .err{background:color-mix(in srgb,var(--down) 8%,transparent);border:1px solid color-mix(in srgb,var(--down) 25%,transparent);color:var(--down);padding:14px 18px;border-radius:12px;font-size:.85rem;margin-bottom:20px}
+  @media(max-width:520px){ .bars{height:26px} header{padding:28px 0 20px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div style="font-size:1.7rem">🏠</div>
+    <div>
+      <h1>FlatMate Expense Manager</h1>
+      <div class="sub">System status &amp; data integrity</div>
+    </div>
+  </header>
+
+  <div id="root">
+    <div class="banner unknown"><span class="dot"></span><div><h2>Loading status…</h2></div></div>
+  </div>
+
+  <footer>
+    Checked automatically every 30 minutes by GitHub Actions.<br>
+    This page is hosted on GitHub Pages, separately from the app, so it stays up when the app does not.<br>
+    <a href="https://github.com/Lucifer-Stone/flat-expense-manager">Source on GitHub</a>
+  </footer>
+</div>
+
+<script>
+const LABEL = {
+  operational: ['All systems operational', 'Everything is running normally and the books reconcile.'],
+  degraded:    ['Degraded performance',    'Some parts are slow, or the data has warnings worth a look.'],
+  major_outage:['Major outage',            'Something is down, or the figures in the app cannot be trusted right now.'],
+  unknown:     ['Status unknown',          'No status data has been published yet.']
+};
+const STATE_LABEL = { up:'Operational', degraded:'Degraded', down:'Outage' };
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ago = iso => {
+  if (!iso) return 'never';
+  const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s/60) + ' min ago';
+  if (s < 86400) return Math.floor(s/3600) + ' hr ago';
+  return Math.floor(s/86400) + ' days ago';
+};
+
+// Collapse raw samples into one bar per day, showing the WORST state seen that
+// day. A 20-minute outage should not be averaged into invisibility.
+function daily(history, id, days) {
+  const byDay = new Map();
+  for (const h of history || []) {
+    const day = h.t.slice(0, 10);
+    const s = h.c?.[id];
+    if (!s) continue;
+    const rank = { up:0, deg:1, down:2 };
+    const cur = byDay.get(day);
+    if (cur === undefined || rank[s] > rank[cur]) byDay.set(day, s);
+  }
+  const out = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    out.push({ day: d, state: byDay.get(d) || null });
+  }
+  return out;
+}
+
+function render(d) {
+  const [title, blurb] = LABEL[d.overall] || LABEL.unknown;
+  const days = window.innerWidth < 520 ? 30 : 90;
+  let h = '';
+
+  h += `<div class="banner ${esc(d.overall)}"><span class="dot"></span><div>
+          <h2>${title}</h2><p>${blurb} · Updated ${ago(d.updatedAt)}</p></div></div>`;
+
+  // Components
+  h += `<div class="card"><h3>Components</h3>`;
+  for (const c of d.components || []) {
+    const bars = daily(d.history, c.id, days)
+      .map(b => `<i class="${b.state || ''}" title="${b.day}: ${b.state ? STATE_LABEL[b.state === 'deg' ? 'degraded' : b.state] : 'no data'}"></i>`)
+      .join('');
+    h += `<div class="comp">
+      <div class="comp-top">
+        <span class="comp-name">${esc(c.name)}</span>
+        <span class="pill ${c.state === 'up' ? 'up' : c.state === 'degraded' ? 'degraded' : 'down'}">
+          ${STATE_LABEL[c.state] || 'Unknown'}${c.latencyMs != null ? ' · ' + c.latencyMs + 'ms' : ''}
+        </span>
+      </div>
+      <div class="comp-desc">${esc(c.description)}${c.error ? ' — <strong>' + esc(c.error) + '</strong>' : ''}</div>
+      <div class="bars">${bars}</div>
+      <div class="bars-legend"><span>${days} days ago</span><span>${c.uptime90d}% uptime</span><span>today</span></div>
+    </div>`;
+  }
+  h += `</div>`;
+
+  // Data integrity — the part a normal status page does not have, and the part
+  // that actually answers "are the numbers on screen true?"
+  const ig = d.integrity || {};
+  const t = ig.totals;
+  h += `<div class="card"><h3>Data Integrity</h3>`;
+  if (ig.error) {
+    h += `<div class="ok-empty">Could not run integrity checks — ${esc(ig.error)}</div>`;
+  } else {
+    if (t) {
+      h += `<div class="metrics">
+        <div class="metric"><div class="v">₹${(t.poolBalance ?? 0).toLocaleString('en-IN')}</div><div class="k">Pool balance</div></div>
+        <div class="metric"><div class="v">₹${(t.totalDeposits ?? 0).toLocaleString('en-IN')}</div><div class="k">Deposits</div></div>
+        <div class="metric"><div class="v">₹${(t.totalClaims ?? 0).toLocaleString('en-IN')}</div><div class="k">Claims</div></div>
+        <div class="metric"><div class="v">${t.activeMembers ?? 0}</div><div class="k">Active members</div></div>
+        <div class="metric"><div class="v" style="color:${(t.balanceDrift || 0) > 1 ? 'var(--down)' : 'var(--up)'}">₹${t.balanceDrift ?? 0}</div><div class="k">Balance drift</div></div>
+      </div>`;
+    }
+    const bad = ig.failing || [];
+    if (!bad.length) {
+      h += `<div class="ok-empty">All ${ig.summary?.total ?? 0} integrity checks passing. Every member's balance sums exactly to the flat total.</div>`;
+    } else {
+      for (const c of bad) {
+        h += `<div class="check">
+          <span class="ico ${c.status}">${c.status === 'fail' ? 'FAIL' : 'WARN'}</span>
+          <span><span class="n">${esc(c.name)}</span><span class="d">${esc(c.detail)}</span></span>
+        </div>`;
+      }
+    }
+  }
+  h += `</div>`;
+
+  // Incidents
+  const inc = d.incidents || [];
+  h += `<div class="card"><h3>Recent Incidents</h3>`;
+  if (!inc.length) {
+    h += `<div class="ok-empty">No incidents recorded.</div>`;
+  } else {
+    for (const i of inc.slice(0, 10)) {
+      const dur = i.endedAt
+        ? Math.max(1, Math.round((new Date(i.endedAt) - new Date(i.startedAt)) / 60000)) + ' min'
+        : 'ongoing';
+      h += `<div class="inc">
+        <strong>${esc(i.componentName)}</strong> — ${esc(i.detail || 'unavailable')}
+        <div class="when">${new Date(i.startedAt).toLocaleString()} · ${dur}${i.endedAt ? ' · resolved' : ''}</div>
+      </div>`;
+    }
+  }
+  h += `</div>`;
+
+  document.getElementById('root').innerHTML = h;
+}
+
+async function load() {
+  try {
+    const res = await fetch('history.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) throw new Error('history.json returned HTTP ' + res.status);
+    render(await res.json());
+  } catch (err) {
+    document.getElementById('root').innerHTML =
+      `<div class="banner unknown"><span class="dot"></span><div><h2>Status unavailable</h2>
+       <p>Could not load status data.</p></div></div>
+       <div class="err">${esc(err.message)}<br><br>
+       If this is a fresh deployment, the health workflow has not published a report yet.
+       Run it manually from the Actions tab.</div>`;
+  }
+}
+
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>

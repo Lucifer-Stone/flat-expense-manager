@@ -1,0 +1,83 @@
+{
+  "updatedAt": "2026-08-05T03:49:41.094Z",
+  "project": "expense-manager-204",
+  "overall": "major_outage",
+  "components": [
+    {
+      "id": "app",
+      "name": "Web App",
+      "description": "The FlatMate app itself, served from Firebase Hosting",
+      "state": "up",
+      "latencyMs": 132,
+      "httpStatus": 200,
+      "error": null,
+      "uptime90d": 100
+    },
+    {
+      "id": "firestore",
+      "name": "Database (Firestore)",
+      "description": "Where every expense, deposit and bill is stored",
+      "state": "up",
+      "latencyMs": 1207,
+      "httpStatus": 403,
+      "error": null,
+      "uptime90d": 100
+    },
+    {
+      "id": "auth",
+      "name": "Sign-In (Google)",
+      "description": "Google authentication used to sign in",
+      "state": "up",
+      "latencyMs": 1074,
+      "httpStatus": 403,
+      "error": null,
+      "uptime90d": 100
+    },
+    {
+      "id": "storage",
+      "name": "Receipt Storage",
+      "description": "Uploaded bill and receipt images",
+      "state": "down",
+      "latencyMs": 518,
+      "httpStatus": 404,
+      "error": null,
+      "uptime90d": 0
+    }
+  ],
+  "integrity": {
+    "status": "unknown",
+    "checkedAt": "2026-08-05T03:49:44.115Z",
+    "summary": {
+      "total": 0,
+      "passed": 0,
+      "warnings": 0,
+      "failures": 0
+    },
+    "totals": null,
+    "failing": [],
+    "error": "Dependencies are not installed — run `npm install` before checking integrity."
+  },
+  "incidents": [],
+  "history": [
+    {
+      "t": "2026-08-05T03:48:46.559Z",
+      "c": {
+        "app": "up",
+        "firestore": "up",
+        "auth": "up",
+        "storage": "down"
+      },
+      "i": "unknown"
+    },
+    {
+      "t": "2026-08-05T03:49:41.094Z",
+      "c": {
+        "app": "up",
+        "firestore": "up",
+        "auth": "up",
+        "storage": "down"
+      },
+      "i": "unknown"
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+name: Health & Status
+
+# Runs the data-integrity checks and endpoint probes, publishes the result to
+# Firestore (_health/latest, which the app reads) and to status/history.json
+# (which the status page reads), then deploys the status page to GitHub Pages.
+#
+# REQUIRED REPOSITORY SECRET:
+#   FIREBASE_SERVICE_ACCOUNT — the full JSON of a service-account key with the
+#   "Cloud Datastore User" role. See SETUP.md.
+
+on:
+  schedule:
+    # Every 30 minutes. GitHub queues cron generously, so treat the cadence as
+    # approximate rather than exact.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'status/index.html'
+      - '.github/workflows/health.yml'
+
+concurrency:
+  group: health
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # to commit status/history.json
+  pages: write
+  id-token: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      overall: ${{ steps.probe.outputs.overall }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci --omit=dev || npm install --omit=dev
+
+      - name: Probe services and check data integrity
+        id: probe
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          node scripts/build-status.mjs | tee probe.log
+          echo "overall=$(node -p "require('./status/history.json').overall")" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Status: \`$(node -p "require('./status/history.json').overall")\`"
+            echo '```'
+            cat probe.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit updated status history
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add status/history.json
+          if git diff --staged --quiet; then
+            echo "No status change to commit."
+          else
+            git commit -m "chore(status): health snapshot [skip ci]"
+            git push
+          fi
+
+      - name: Upload status page
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: status
+
+  deploy-status-page:
+    needs: check
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  # A failing integrity check means somebody is being shown a wrong number right
+  # now. Open an issue so it is not discovered three months later.
+  alert:
+    needs: check
+    if: needs.check.outputs.overall == 'major_outage'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const s = JSON.parse(fs.readFileSync('status/history.json', 'utf8'));
+            const down = s.components.filter(c => c.state === 'down')
+              .map(c => `- **${c.name}** — ${c.error || 'HTTP ' + c.httpStatus}`);
+            const bad = (s.integrity.failing || []).filter(c => c.status === 'fail')
+              .map(c => `- **${c.name}** — ${c.detail}`);
+
+            const title = '🚨 FlatMate: ' + (down.length ? 'service outage' : 'data integrity failure');
+            const body = [
+              `Detected at ${s.updatedAt}`, '',
+              down.length ? '## Services down\n' + down.join('\n') : '',
+              bad.length ? '## Failing integrity checks\n' + bad.join('\n') : '',
+              '', `Status page: https://lucifer-stone.github.io/flat-expense-manager/`
+            ].filter(Boolean).join('\n');
+
+            // Reuse an open alert rather than filing a duplicate every 30 min.
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'automated-alert'
+            });
+            if (open.length) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: open[0].number, body
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ['automated-alert']
+              });
+            }
