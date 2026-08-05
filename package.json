@@ -21,6 +21,10 @@
     "serve": "firebase emulators:start --only hosting,firestore,storage"
   },
   "dependencies": {
-    "firebase-admin": "^13.0.2"
+    "firebase-admin": "^14.2.0"
+  },
+  "overridesNote": "GHSA-w5hq-g745-h8pq: uuid <11.1.1 misses a buffer bounds check in v3/v5/v6. It reaches this project only transitively, via Google's client libraries, which have not yet bumped it — so no firebase-admin release fixes it. These packages are CI-only and never reach a browser, but forcing the patched version keeps the advisory resolved rather than permanently muted.",
+  "overrides": {
+    "uuid": "^11.1.0"
   }
 }
