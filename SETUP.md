@@ -143,17 +143,28 @@ deploy and your data is still open.
 
 ---
 
-## 7. First sign-in and invites
+## 7. First sign-in and letting people in
 
 1. Open the app. Sign in with the Google account from step 1 — you become admin.
-2. Go to **Manage → Members → ➕ Invite Member**.
-3. Enter each flatmate's Google address and whether they are in the mess.
-4. They open the app and choose *Sign in with Google* with that exact account.
+2. Tell your flatmates the URL. **They sign in with Google themselves.**
+3. Each one lands on a *"Waiting for approval"* screen and appears as a card in
+   your **Manage → Members** tab, with their name, photo and email.
+4. Tick **In mess** if they eat from the common kitchen, then **Approve**.
+   They are let in automatically — no refresh needed on their side.
 
-Nobody handles a password. Nobody shares a PIN. An email not on the list gets
-the "Access not granted" screen.
+Nobody handles a password, and you never have to collect email addresses. A
+request on its own grants **no** access: until you approve, that person cannot
+read a single expense, balance or member record. This is enforced in
+`firestore.rules`, not in the interface.
 
-After everyone is in, confirm `npm run check` reports **no plaintext PINs
+If you would rather pre-authorise someone before they ever sign in, **➕ Invite
+Member** still does that — they skip the queue entirely.
+
+**Declining** records the decision rather than deleting it, so the person sees a
+clear answer instead of silence, and cannot re-request in a loop. Clearing a
+declined request lets them try again.
+
+After the migration, confirm `npm run check` reports **no plaintext PINs
 remain**.
 
 ---

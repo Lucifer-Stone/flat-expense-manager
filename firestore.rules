@@ -198,6 +198,57 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ── JOIN REQUESTS ────────────────────────────────────────────────────────
+    // Self-service signup, gated on admin approval.
+    //
+    // Anyone with a Google account may knock on the door: they sign in and a
+    // request document appears here. Crucially, holding a request grants NO
+    // read access to anything else — expenses, deposits, members and balances
+    // all require a /members document, which only an admin can create. So the
+    // worst an uninvited stranger can do is queue a card in the Manage tab.
+    //
+    // Approving is a two-step the admin performs: create /members/{uid}, then
+    // delete the request. Declining writes status:'declined' rather than
+    // deleting, which both tells the person and blocks them re-requesting in a
+    // loop (create fails while the document exists).
+    match /joinRequests/{uid} {
+
+      function validNewRequest() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['name', 'email', 'status', 'requestedAt'])
+          && d.keys().hasOnly(['name', 'email', 'photoURL', 'status', 'requestedAt'])
+          && validText(d.name, 60) && d.name.size() > 0
+          && d.email is string
+          && validText(d.get('photoURL', ''), 500)
+          // A request may only ever be created in the pending state. Nobody
+          // gets to self-approve.
+          && d.status == 'pending'
+          && d.requestedAt == request.time;
+      }
+
+      // You may only request access for yourself, using your own verified
+      // Google address — so a request cannot be forged on someone else's behalf.
+      allow create: if isSelf(uid)
+        && request.auth.token.email_verified == true
+        && request.resource.data.email.lower() == request.auth.token.email.lower()
+        && validNewRequest();
+
+      // You can see your own request's status. Admins see the queue. Nobody
+      // else can enumerate who has applied.
+      allow read: if isSelf(uid) || isAdmin();
+
+      // The only permitted mutation is an admin declining. The requester can
+      // never alter their own request — in particular they cannot flip status.
+      allow update: if isAdmin()
+        && request.resource.data.status == 'declined'
+        && request.resource.data.diff(resource.data)
+             .affectedKeys().hasOnly(['status', 'decidedBy', 'decidedAt'])
+        && request.resource.data.decidedBy == request.auth.uid;
+
+      // Admins clear the queue on approval; a requester may withdraw.
+      allow delete: if isAdmin() || isSelf(uid);
+    }
+
     // ── EXPENSES ─────────────────────────────────────────────────────────────
     // An individual lays out their own money and claims it back from the pool.
     match /expenses/{id} {

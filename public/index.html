@@ -94,11 +94,13 @@
   function App() {
     const now = new Date();
 
-    // 'loading' -> 'signedout' | 'denied' | 'ready'
+    // 'loading' -> 'signedout' | 'pending' | 'denied' | 'ready'
     const [phase, setPhase] = useState('loading');
     const [authUser, setAuthUser] = useState(null);
     const [me, setMe] = useState(null);
     const [authError, setAuthError] = useState('');
+    const [joinRequest, setJoinRequest] = useState(null);
+    const [joinRequests, setJoinRequests] = useState([]);
 
     const [members,  setMembers]  = useState([]);
     const [expenses, setExpenses] = useState([]);
@@ -156,8 +158,24 @@
             return;
           }
 
-          setAuthError(`${user.email} is not on the resident list for this flat.`);
-          setPhase('denied');
+          // Not invited — fall back to self-service signup. A request grants no
+          // access to anything; it only puts a card in an admin's queue.
+          const reqRef = db.collection('joinRequests').doc(user.uid);
+          const existing = await reqRef.get();
+          if (existing.exists) {
+            setJoinRequest(existing.data());
+          } else {
+            const payload = {
+              name: user.displayName || email,
+              email,
+              photoURL: user.photoURL || '',
+              status: 'pending',
+              requestedAt: stamp()
+            };
+            await reqRef.set(payload);
+            setJoinRequest({ ...payload, requestedAt: null });
+          }
+          setPhase('pending');
         } catch (err) {
           console.error('Auth resolution failed:', err);
           setAuthError(err.message);
@@ -195,6 +213,30 @@
       ];
       return () => unsubs.forEach(u => u());
     }, [phase]);
+
+    // Admins watch the access queue. Only admins may read this collection, so
+    // subscribing as a normal member would just log a permission error.
+    useEffect(() => {
+      if (phase !== 'ready' || !me?.isAdmin) { setJoinRequests([]); return; }
+      return db.collection('joinRequests').onSnapshot(
+        s => setJoinRequests(s.docs.map(d => ({ id: d.id, ...d.data() }))),
+        err => console.error('joinRequests listener failed:', err)
+      );
+    }, [phase, me?.isAdmin]);
+
+    // While waiting at the door, watch your own request. Approval deletes it,
+    // so its disappearance is the signal to re-resolve and let the person in
+    // without them having to guess when to refresh.
+    useEffect(() => {
+      if (phase !== 'pending' || !authUser) return;
+      return db.collection('joinRequests').doc(authUser.uid).onSnapshot(
+        d => {
+          if (!d.exists) window.location.reload();
+          else setJoinRequest(d.data());
+        },
+        err => console.error('own request listener failed:', err)
+      );
+    }, [phase, authUser]);
 
     // ── Writers ─────────────────────────────────────────────────────────────
     const getConfig = (mo, yr) => ({ rent: 3000, mess: 3000, ...config[mKey(mo, yr)] });
@@ -263,6 +305,37 @@
     const removeMember = (uid) =>
       db.collection('members').doc(uid).delete().catch(failWrite('remove this member'));
 
+    // Approval is deliberately two writes: create the member record, then clear
+    // the request. If the second fails the person still gets in — the failure
+    // mode is a stale card in the queue rather than someone locked out.
+    const approveRequest = async (req, isMessMember) => {
+      try {
+        await db.collection('members').doc(req.id).set({
+          name: req.name,
+          email: req.email,
+          isAdmin: false,
+          isMessMember: !!isMessMember,
+          active: true,
+          joinedAt: stamp(),
+          photoURL: req.photoURL || ''
+        });
+        await db.collection('joinRequests').doc(req.id).delete();
+      } catch (err) {
+        failWrite('approve this request')(err);
+      }
+    };
+
+    // Declining keeps the record rather than deleting it, so the person sees a
+    // clear answer and cannot re-request in a loop. Deleting it later lets them
+    // try again.
+    const declineRequest = (req) =>
+      db.collection('joinRequests').doc(req.id)
+        .update({ status: 'declined', decidedBy: me.id, decidedAt: stamp() })
+        .catch(failWrite('decline this request'));
+
+    const dismissRequest = (req) =>
+      db.collection('joinRequests').doc(req.id).delete().catch(failWrite('dismiss this request'));
+
     const monthExp   = (mo, yr) => expenses.filter(e => { const d = new Date(e.date); return d.getMonth() === mo && d.getFullYear() === yr; });
     const monthContr = (mo, yr) => contributions.filter(c => { const d = new Date(c.date); return d.getMonth() === mo && d.getFullYear() === yr; });
     const monthJointBills = (mo, yr) => jointBills.filter(b => { const d = new Date(b.date); return d.getMonth() === mo && d.getFullYear() === yr; });
@@ -273,7 +346,8 @@
       members, selMonth, selYear, setSelMonth, setSelYear, getConfig, setConfig,
       monthExp, monthContr, currentUser: me, me, setCookDay, cookAttendance,
       jointBills, monthJointBills, addJointBill, updateJointBill, deleteJointBill,
-      updateMember, inviteMember, removeMember
+      updateMember, inviteMember, removeMember,
+      joinRequests, approveRequest, declineRequest, dismissRequest
     };
 
     const tabs = [
@@ -294,6 +368,7 @@
     }
 
     if (phase === 'signedout') return <LoginScreen />;
+    if (phase === 'pending')   return <PendingScreen request={joinRequest} email={authUser?.email} />;
     if (phase === 'denied')    return <DeniedScreen email={authUser?.email} reason={authError} />;
 
     return (
@@ -1401,10 +1476,13 @@
   }
 
   // ── Members ────────────────────────────────────────────────────────────────
-  function MembersTab({ members, currentUser, updateMember, inviteMember, removeMember }) {
+  function MembersTab({ members, currentUser, updateMember, inviteMember, removeMember,
+                        joinRequests, approveRequest, declineRequest, dismissRequest }) {
     const [editId,   setEditId]  = useState(null);
     const [editName, setEditName]= useState('');
     const [invite,   setInvite]  = useState(null); // {email, name, isMessMember}
+    // Mess membership is chosen at approval time, per request.
+    const [messFor,  setMessFor] = useState({});
 
     const admins = members.filter(m => m.isAdmin && m.active !== false);
 
@@ -1465,6 +1543,57 @@
             <button onClick={()=>setInvite({email:'',name:'',isMessMember:true})} style={{background:'#10b981',color:'white',borderRadius:8,padding:'8px 16px',fontWeight:700,fontSize:'0.85rem',border:'none',cursor:'pointer'}}>➕ Invite Member</button>
           )}
         </div>
+
+        {/* Access queue — self-service signups awaiting a decision. */}
+        {currentUser.isAdmin && (joinRequests || []).length > 0 && (
+          <div className="card" style={{padding:0,marginBottom:18,overflow:'hidden',border:'1px solid #c7d2fe'}}>
+            <div style={{background:'#eef2ff',padding:'12px 20px',borderBottom:'1px solid #c7d2fe'}}>
+              <h3 style={{fontWeight:800,color:'#3730a3',fontSize:'0.92rem'}}>
+                🔔 Access requests ({joinRequests.filter(r=>r.status!=='declined').length} pending)
+              </h3>
+              <p style={{fontSize:'0.78rem',color:'#4338ca',marginTop:3}}>
+                These people signed in with Google and are waiting to be let in. They can see nothing until you approve.
+              </p>
+            </div>
+            {joinRequests.map(r => {
+              const declined = r.status === 'declined';
+              const mess = messFor[r.id] !== false;
+              return (
+                <div key={r.id} style={{padding:'14px 20px',borderBottom:'1px solid #f3f4f6',display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',opacity:declined?0.6:1}}>
+                  {r.photoURL
+                    ? <img src={r.photoURL} alt="" referrerPolicy="no-referrer" style={{width:40,height:40,borderRadius:'50%',flexShrink:0}} />
+                    : <Avatar name={r.name || '?'} color="#6b7280" size={40} />}
+                  <div style={{flex:1,minWidth:170}}>
+                    <div style={{fontWeight:700,color:'#1f2937',fontSize:'0.92rem'}}>{r.name}</div>
+                    <div style={{fontSize:'0.78rem',color:'#6b7280'}}>{r.email}</div>
+                    {declined && <div style={{fontSize:'0.74rem',color:'#b91c1c',fontWeight:700,marginTop:2}}>Declined</div>}
+                  </div>
+                  {!declined && (
+                    <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'0.8rem',fontWeight:600,color:'#374151',cursor:'pointer'}}>
+                      <input type="checkbox" checked={mess}
+                        onChange={e=>setMessFor(p=>({...p,[r.id]:e.target.checked}))}
+                        style={{width:15,height:15,cursor:'pointer'}} />
+                      In mess
+                    </label>
+                  )}
+                  <div style={{display:'flex',gap:8}}>
+                    {declined ? (
+                      <button onClick={()=>{ if(confirm(`Remove this declined request? ${r.name} will be able to request access again.`)) dismissRequest(r); }}
+                        style={{background:'#f3f4f6',color:'#6b7280',borderRadius:7,padding:'7px 14px',fontWeight:700,fontSize:'0.8rem'}}>Clear</button>
+                    ) : (
+                      <>
+                        <button onClick={()=>{ if(confirm(`Give ${r.name} (${r.email}) full access to the flat's expenses and balances?`)) approveRequest(r, mess); }}
+                          style={{background:'#10b981',color:'white',borderRadius:7,padding:'7px 16px',fontWeight:700,fontSize:'0.8rem'}}>✓ Approve</button>
+                        <button onClick={()=>{ if(confirm(`Decline ${r.email}?`)) declineRequest(r); }}
+                          style={{background:'#fee2e2',color:'#b91c1c',borderRadius:7,padding:'7px 14px',fontWeight:700,fontSize:'0.8rem'}}>Decline</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {invite && (
           <div className="card" style={{padding:22,marginBottom:18,maxWidth:460}}>
@@ -1548,7 +1677,7 @@
         </div>
         {currentUser.isAdmin && (
           <div style={{marginTop:18,padding:'14px 18px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:10,fontSize:'0.82rem',color:'#92400e',lineHeight:1.6}}>
-            💡 <strong>You are an Admin.</strong> You can invite people, toggle admin and mess status, rename, deactivate or delete members.
+            💡 <strong>You are an Admin.</strong> People can request access themselves by signing in with Google — approve them from the queue above. Inviting by email still works if you'd rather pre-authorise someone.
             <br />Prefer <strong>Deactivate</strong> over Delete — it revokes access immediately but keeps their expenses attached, so past months keep adding up. Deleting orphans those records permanently.
           </div>
         )}
@@ -1658,8 +1787,42 @@
             {busy ? 'Opening Google…' : 'Sign in with Google'}
           </button>
           <p style={{marginTop:18,fontSize:'0.75rem',color:'#9ca3af',textAlign:'center',lineHeight:1.5}}>
-            Only residents on the flat's list can get in. There are no shared passwords or PINs.
+            New here? Signing in sends a request to the flat admin.<br />
+            There are no shared passwords or PINs.
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Pending Screen ─────────────────────────────────────────────────────────
+  // Where a self-service signup waits. Holding a request grants no read access
+  // to anything — the security rules require a /members document, which only an
+  // admin can create. This screen is the whole of what an unapproved stranger
+  // can reach.
+  function PendingScreen({ request, email }) {
+    const declined = request?.status === 'declined';
+    return (
+      <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f3f4f6',padding:16}}>
+        <div className="card" style={{padding:40,width:'100%',maxWidth:440,textAlign:'center'}}>
+          <div style={{fontSize:'2.5rem',marginBottom:12}}>{declined ? '🚫' : '⏳'}</div>
+          <h1 style={{fontSize:'1.3rem',fontWeight:800,color:declined?'#b91c1c':'#4f46e5',marginBottom:10}}>
+            {declined ? 'Request declined' : 'Waiting for approval'}
+          </h1>
+          <p style={{color:'#4b5563',fontSize:'0.9rem',marginBottom:8,lineHeight:1.6}}>
+            {declined
+              ? 'An admin has declined this request. If you think that is a mistake, speak to whoever manages the flat account.'
+              : 'Your request has been sent to the flat admin. You will be let in automatically as soon as they approve it — you can leave this page open.'}
+          </p>
+          {email && <p style={{color:'#9ca3af',fontSize:'0.82rem',marginBottom:22}}>Signed in as {email}</p>}
+          {!declined && (
+            <div style={{background:'#eef2ff',color:'#3730a3',padding:'10px 14px',borderRadius:8,fontSize:'0.78rem',marginBottom:20,lineHeight:1.5}}>
+              Until then you have no access to the flat's expenses or balances.
+            </div>
+          )}
+          <button onClick={()=>auth.signOut()} style={{background:'#4f46e5',color:'white',borderRadius:9,padding:'10px 22px',fontWeight:700,fontSize:'0.9rem'}}>
+            Sign out
+          </button>
         </div>
       </div>
     );

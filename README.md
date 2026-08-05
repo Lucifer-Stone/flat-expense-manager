@@ -80,7 +80,8 @@ them.
 | `jointBills/{id}` | auto | Flat-level bills with `applicableMembers` |
 | `cookAttendance/{YYYY-MM-DD}` | date | One doc per day, so concurrent edits don't collide |
 | `config/{YYYY-MM}` | month | Per-head rent and mess figures |
-| `invites/{email}` | lowercased email | Pre-authorised residents |
+| `invites/{email}` | lowercased email | Pre-authorised residents (optional path) |
+| `joinRequests/{uid}` | Firebase Auth uid | Self-service signups awaiting approval |
 | `audit/{id}` | auto | Append-only; no client can rewrite it |
 | `_health/latest` | — | Written by CI only; drives the in-app warning banner |
 
@@ -94,8 +95,14 @@ anyone can read the app source and call Firestore directly, so every rule the
 interface appears to apply is restated server-side.
 
 - **Google Sign-In only.** No passwords, no PINs, no shared secrets.
-- **Allowlist by construction.** Access requires a `/members/{uid}` document.
-  A valid Google account alone gets you the "Access not granted" screen.
+- **Allowlist by construction.** Access requires a `/members/{uid}` document,
+  which only an admin can create. A valid Google account alone gets you a
+  waiting screen and nothing else.
+- **Self-service signup, admin approval.** Anyone may sign in and request
+  access; the request grants no read access to any expense, balance or member.
+  An admin approves from a queue in the Manage tab, choosing mess membership at
+  that point. Declining is recorded rather than deleted, so the person gets a
+  clear answer and cannot re-request in a loop.
 - **Ownership.** You can file and edit expenses only against yourself. Admins
   can act for anyone.
 - **No self-escalation.** `isAdmin`, `isMessMember` and `active` are immutable

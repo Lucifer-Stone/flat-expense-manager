@@ -43,13 +43,14 @@ const money = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
 const isFiniteNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
 async function main() {
-  const [members, expenses, contributions, jointBills, cook, config] = await Promise.all([
+  const [members, expenses, contributions, jointBills, cook, config, joinRequests] = await Promise.all([
     readAll('members'),
     readAll('expenses'),
     readAll('contributions'),
     readAll('jointBills'),
     readAll('cookAttendance'),
     readAll('config'),
+    readAll('joinRequests'),
   ]);
 
   const memberById = new Map(members.map((m) => [m.id, m]));
@@ -278,7 +279,36 @@ async function main() {
       'Legacy app/* documents removed — single source of truth.');
   }
 
-  // ── 9. Cook attendance shape ──────────────────────────────────────────────
+  // ── 9. Access queue not being ignored ─────────────────────────────────────
+  // A request sitting unanswered for days is usually an admin who never saw the
+  // notification, and to the person waiting it is indistinguishable from being
+  // silently refused.
+  const pending = joinRequests.filter((r) => r.status !== 'declined');
+  const stale = pending.filter((r) => {
+    const t = r.requestedAt ? new Date(r.requestedAt).getTime() : null;
+    return t && Date.now() - t > 3 * 86400e3;
+  });
+  add('access.queue', 'No access requests left waiting',
+    stale.length ? 'warn' : 'pass',
+    stale.length
+      ? `${stale.length} access request(s) pending more than 3 days: ` +
+        `${stale.map((r) => r.email).slice(0, 5).join(', ')}. They are stuck on the waiting screen.`
+      : pending.length
+        ? `${pending.length} request(s) pending, none stale.`
+        : 'No requests waiting.',
+    { count: pending.length, stale: stale.length });
+
+  // Anyone in the queue who is ALREADY a member means approval half-completed:
+  // the member document was created but the request was never cleared.
+  const orphanRequests = pending.filter((r) => memberById.has(r.id));
+  if (orphanRequests.length) {
+    add('access.orphaned', 'Access queue matches membership', 'warn',
+      `${orphanRequests.length} request(s) belong to people who are already members. ` +
+      'Approval created the member record but did not clear the request. Safe to dismiss.',
+      { count: orphanRequests.length });
+  }
+
+  // ── 10. Cook attendance shape ─────────────────────────────────────────────
   const badCook = cook.filter((c) => !DATE_RE.test(c.id) || !['full', 'half', 'absent'].includes(c.state));
   add('cook.schema', 'Cook attendance well-formed',
     badCook.length ? 'warn' : 'pass',
