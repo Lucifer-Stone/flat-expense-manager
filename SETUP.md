@@ -11,12 +11,11 @@
 > | 5. Migration | done — ₹496 / ₹53,100 / ₹22,163 verified identical before and after |
 > | 6. Rules + app deployed | done — unauthenticated reads *and* writes confirmed denied |
 > | 7. Sign in and admit people | **your turn** — see below |
-> | 8. API key referrer restriction | **outstanding** |
+> | 8. API key referrer restriction | done — key locked to `web.app`; `authDomain` moved to match |
 > | 9. Status page | done — <https://lucifer-stone.github.io/flat-expense-manager/> |
 > | 10. Hosting consolidated | done — app on Firebase, status page on Pages |
 >
-> **Outstanding:** step 8, and eight residents still hold unclaimed history
-> (see step 7). Cloud Storage remains unavailable on the Spark plan, so receipt
+> **Outstanding:** eight residents still hold unclaimed history (see step 7). Cloud Storage remains unavailable on the Spark plan, so receipt
 > uploads do not work — everything else does.
 
 The steps below are kept as the reference procedure, and are what you would
@@ -211,14 +210,37 @@ credential — [Google documents this explicitly](https://firebase.google.com/do
 It is safe in source. But you should still restrict where it works:
 
 Google Cloud Console → **APIs & Services → Credentials** → your browser key →
-**Application restrictions → HTTP referrers**, then add:
+**Application restrictions → HTTP referrers**. The allowlist must contain the
+origin the app is served from:
 
 ```
 https://expense-manager-204.web.app/*
-https://expense-manager-204.firebaseapp.com/*
 ```
 
 Now the key is useless from anyone else's page.
+
+> ### If sign-in breaks with "The requested action is invalid."
+>
+> This is the failure mode of referrer restrictions, and the message tells you
+> nothing useful. The sign-in handler runs on whatever `authDomain` is set to in
+> `public/index.html`, and that page calls the Identity Toolkit **using this
+> key**. If the handler's own origin is not on the allowlist above, its calls are
+> rejected and the popup dies with that message.
+>
+> This project sets `authDomain` to `expense-manager-204.web.app` rather than the
+> Firebase default `…firebaseapp.com`, precisely so the handler runs on the one
+> origin already allowlisted. It also keeps the whole flow same-origin, which
+> sidesteps third-party cookie restrictions in Safari and Chrome.
+>
+> **If you add a custom domain later, change `authDomain` to it and add it to the
+> allowlist in the same sitting** — otherwise sign-in breaks and the error will
+> not tell you why.
+>
+> To diagnose the state of Auth at any time:
+>
+> ```bash
+> node scripts/check-auth-config.mjs   # providers, authorised domains, linking
+> ```
 
 ---
 

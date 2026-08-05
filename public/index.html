@@ -24,7 +24,20 @@
     // Cloud console (see SETUP.md). Do not waste effort hiding it.
     const firebaseConfig = {
       apiKey: "AIzaSyDrpK8R3h7BM9kR22l_1PVSzVzJK_abYlM",
-      authDomain: "expense-manager-204.firebaseapp.com",
+      // Deliberately the hosting domain, NOT the default
+      // expense-manager-204.firebaseapp.com.
+      //
+      // The sign-in handler runs on whatever authDomain says, and it calls the
+      // Identity Toolkit using the apiKey above. That key is referrer-restricted
+      // to this app's own origin, so a handler hosted on firebaseapp.com has its
+      // calls rejected and the popup dies with the famously unhelpful "The
+      // requested action is invalid."
+      //
+      // Pointing authDomain at the origin users are already on also keeps the
+      // whole flow same-origin, avoiding third-party cookie restrictions in
+      // Safari and Chrome. If you add a custom domain later, set it here and add
+      // it to the key's allowed referrers at the same time.
+      authDomain: "expense-manager-204.web.app",
       projectId: "expense-manager-204",
       storageBucket: "expense-manager-204.firebasestorage.app",
       messagingSenderId: "345105807048",
