@@ -75,13 +75,28 @@ async function resolveUids(map) {
   const out = {};
 
   for (const [legacyId, m] of Object.entries(map.members)) {
-    if (m.skip) {
-      out[legacyId] = { uid: `inactive:${legacyId}`, ...m, active: false };
-      continue;
-    }
     const email = (m.email || '').trim().toLowerCase();
-    if (!email || !email.includes('@')) {
-      throw new Error(`Member "${m.name}" (legacy id ${legacyId}) has no valid email in ${MAP_PATH}.`);
+
+    // No email, or explicitly skipped: park this person's history on an
+    // UNCLAIMED PLACEHOLDER member. The records stay attached to a real member
+    // document, so flat totals and the pool identity keep reconciling — the
+    // history simply is not yet on anyone's login. When the person later signs
+    // in for themselves, an admin links the placeholder and the records
+    // transfer across.
+    //
+    // Placeholders are forced non-admin: an inactive record should never carry
+    // privileges waiting to be inherited.
+    if (m.skip || !email || !email.includes('@')) {
+      out[legacyId] = {
+        uid: `unclaimed_${legacyId}`,
+        ...m,
+        email: '',
+        isAdmin: false,
+        active: false,
+        unclaimed: true,
+      };
+      log(`  ${m.name.padEnd(12)} ${'(no email)'.padEnd(32)} -> placeholder unclaimed_${legacyId}`);
+      continue;
     }
 
     let user;
@@ -113,9 +128,7 @@ async function buildPlan(idMap) {
 
   // Members ------------------------------------------------------------------
   for (const [legacyId, m] of Object.entries(idMap)) {
-    if (m.uid.startsWith('inactive:') || m.uid.startsWith('pending:')) {
-      if (m.uid.startsWith('pending:')) continue; // dry-run placeholder
-    }
+    if (m.uid.startsWith('pending:')) continue; // dry-run placeholder only
     writes.push({
       ref: db().collection('members').doc(m.uid),
       data: {
@@ -126,6 +139,7 @@ async function buildPlan(idMap) {
         active: m.active !== false,
         joinedAt: now,
         legacyId,
+        ...(m.unclaimed ? { unclaimed: true } : {}),
       },
       merge: true,
     });

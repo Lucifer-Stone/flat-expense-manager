@@ -79,6 +79,17 @@
   const dayKey = (yr, mo, d) => `${yr}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   const stamp  = () => firebase.firestore.FieldValue.serverTimestamp();
 
+  // Must match bootstrapAdminEmail() in firestore.rules. Not a secret: it grants
+  // nothing without control of that Google account, and the rules enforce it
+  // server-side regardless of what this constant says.
+  //
+  // This is the lockout safety net. If this account ever signs in without an
+  // existing member record — a fresh project, or Firebase minting a new uid
+  // instead of linking by email — it self-provisions as admin. Without it, the
+  // invite path would admit them as an ordinary member and the flat could end
+  // up with nobody able to administer anything.
+  const BOOTSTRAP_ADMIN_EMAIL = 'wolverinemds7@gmail.com';
+
   // Surface a rules rejection honestly instead of failing silently. If a write
   // is denied, the user needs to know their entry did NOT save.
   const failWrite = (action) => (err) => {
@@ -139,8 +150,27 @@
             return;
           }
 
-          // No member record yet — try to claim a pending invite.
           const email = (user.email || '').toLowerCase();
+
+          // Bootstrap first, ahead of the invite path — the invite path would
+          // force isAdmin:false and could leave the flat with no admin at all.
+          if (email === BOOTSTRAP_ADMIN_EMAIL) {
+            await ref.set({
+              name: user.displayName || email,
+              email,
+              isAdmin: true,
+              isMessMember: true,
+              active: true,
+              joinedAt: stamp(),
+              photoURL: user.photoURL || ''
+            });
+            const fresh = await ref.get();
+            setMe({ id: user.uid, ...fresh.data() });
+            setPhase('ready');
+            return;
+          }
+
+          // No member record yet — try to claim a pending invite.
           const invite = await db.collection('invites').doc(email).get();
           if (invite.exists) {
             await ref.set({
@@ -305,10 +335,39 @@
     const removeMember = (uid) =>
       db.collection('members').doc(uid).delete().catch(failWrite('remove this member'));
 
-    // Approval is deliberately two writes: create the member record, then clear
-    // the request. If the second fails the person still gets in — the failure
-    // mode is a stale card in the queue rather than someone locked out.
-    const approveRequest = async (req, isMessMember) => {
+    // Moves every record belonging to an unclaimed placeholder onto a real
+    // account, then retires the placeholder. Done as one batch so it is
+    // all-or-nothing: a half-transferred member would leave the pool identity
+    // broken and somebody looking at a wrong balance.
+    //
+    // createdBy is deliberately NOT rewritten — who originally entered a record
+    // is a historical fact, and the rules treat it as immutable.
+    const adoptHistory = async (fromUid, toUid) => {
+      const [exp, con, bills] = await Promise.all([
+        db.collection('expenses').where('memberId', '==', fromUid).get(),
+        db.collection('contributions').where('memberId', '==', fromUid).get(),
+        db.collection('jointBills').where('applicableMembers', 'array-contains', fromUid).get(),
+      ]);
+
+      const batch = db.batch();
+      const touch = { updatedAt: stamp(), updatedBy: me.id };
+      exp.forEach(d => batch.update(d.ref, { memberId: toUid, ...touch }));
+      con.forEach(d => batch.update(d.ref, { memberId: toUid, ...touch }));
+      bills.forEach(d => batch.update(d.ref, {
+        applicableMembers: (d.data().applicableMembers || []).map(x => x === fromUid ? toUid : x),
+        ...touch
+      }));
+      batch.delete(db.collection('members').doc(fromUid));
+      await batch.commit();
+
+      return { expenses: exp.size, contributions: con.size, jointBills: bills.size };
+    };
+
+    // Approval is deliberately staged: create the member record first, then
+    // adopt history, then clear the request. If a later step fails the person
+    // is still admitted — the failure mode is a stale queue card or unmoved
+    // history, both fixable, rather than someone locked out.
+    const approveRequest = async (req, isMessMember, linkFromUid) => {
       try {
         await db.collection('members').doc(req.id).set({
           name: req.name,
@@ -319,7 +378,17 @@
           joinedAt: stamp(),
           photoURL: req.photoURL || ''
         });
+
+        let moved = null;
+        if (linkFromUid) moved = await adoptHistory(linkFromUid, req.id);
+
         await db.collection('joinRequests').doc(req.id).delete();
+
+        if (moved) {
+          alert(`${req.name} approved.\n\nTransferred ${moved.contributions} deposit(s), ` +
+                `${moved.expenses} expense(s) and ${moved.jointBills} joint-bill share(s) ` +
+                `to their account.`);
+        }
       } catch (err) {
         failWrite('approve this request')(err);
       }
@@ -1481,8 +1550,13 @@
     const [editId,   setEditId]  = useState(null);
     const [editName, setEditName]= useState('');
     const [invite,   setInvite]  = useState(null); // {email, name, isMessMember}
-    // Mess membership is chosen at approval time, per request.
+    // Mess membership and history-linking are both chosen at approval time.
     const [messFor,  setMessFor] = useState({});
+    const [linkFor,  setLinkFor] = useState({});
+
+    // Members carried over by the migration whose owner has not signed in yet.
+    // Their deposits and expenses are parked here until someone claims them.
+    const unclaimed = members.filter(m => m.unclaimed && m.active === false);
 
     const admins = members.filter(m => m.isAdmin && m.active !== false);
 
@@ -1544,6 +1618,16 @@
           )}
         </div>
 
+        {/* Unclaimed history carried over by the migration. */}
+        {currentUser.isAdmin && unclaimed.length > 0 && (
+          <div style={{marginBottom:18,padding:'14px 18px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:10,fontSize:'0.83rem',color:'#92400e',lineHeight:1.6}}>
+            📦 <strong>{unclaimed.length} {unclaimed.length===1?'person has':'people have'} history but no login yet:</strong>{' '}
+            {unclaimed.map(u=>u.name).join(', ')}.
+            <br />Their deposits and expenses are held safely and still count towards the flat's totals, but nobody can see them as their own yet.
+            When each person signs in with Google, approve them from the queue and pick <em>“This is {unclaimed[0].name}”</em> to move their records across.
+          </div>
+        )}
+
         {/* Access queue — self-service signups awaiting a decision. */}
         {currentUser.isAdmin && (joinRequests || []).length > 0 && (
           <div className="card" style={{padding:0,marginBottom:18,overflow:'hidden',border:'1px solid #c7d2fe'}}>
@@ -1576,13 +1660,30 @@
                       In mess
                     </label>
                   )}
+                  {/* Adopt an unclaimed record so this person's pre-existing
+                      deposits and expenses land on their new account. */}
+                  {!declined && unclaimed.length > 0 && (
+                    <select value={linkFor[r.id] || ''} title="Attach this person's history from before they had a login"
+                      onChange={e=>setLinkFor(p=>({...p,[r.id]:e.target.value}))}
+                      style={{...selStyle,padding:'6px 10px',fontSize:'0.8rem',maxWidth:190}}>
+                      <option value="">No past history</option>
+                      {unclaimed.map(u => <option key={u.id} value={u.id}>This is {u.name}</option>)}
+                    </select>
+                  )}
                   <div style={{display:'flex',gap:8}}>
                     {declined ? (
                       <button onClick={()=>{ if(confirm(`Remove this declined request? ${r.name} will be able to request access again.`)) dismissRequest(r); }}
                         style={{background:'#f3f4f6',color:'#6b7280',borderRadius:7,padding:'7px 14px',fontWeight:700,fontSize:'0.8rem'}}>Clear</button>
                     ) : (
                       <>
-                        <button onClick={()=>{ if(confirm(`Give ${r.name} (${r.email}) full access to the flat's expenses and balances?`)) approveRequest(r, mess); }}
+                        <button onClick={()=>{
+                          const link = linkFor[r.id] || '';
+                          const who = unclaimed.find(u=>u.id===link);
+                          const msg = who
+                            ? `Approve ${r.name} (${r.email}) AND transfer all of ${who.name}'s existing deposits, expenses and joint-bill shares to this account?\n\nThe "${who.name}" placeholder will be removed. This cannot be undone from the app.`
+                            : `Give ${r.name} (${r.email}) full access to the flat's expenses and balances?`;
+                          if (confirm(msg)) approveRequest(r, mess, link || null);
+                        }}
                           style={{background:'#10b981',color:'white',borderRadius:7,padding:'7px 16px',fontWeight:700,fontSize:'0.8rem'}}>✓ Approve</button>
                         <button onClick={()=>{ if(confirm(`Decline ${r.email}?`)) declineRequest(r); }}
                           style={{background:'#fee2e2',color:'#b91c1c',borderRadius:7,padding:'7px 14px',fontWeight:700,fontSize:'0.8rem'}}>Decline</button>
@@ -1656,9 +1757,11 @@
                     style={{background:m.isMessMember?'#d1fae5':'#fef2f2',color:m.isMessMember?'#065f46':'#991b1b',padding:'3px 12px',borderRadius:999,fontSize:'0.72rem',fontWeight:700,border:'none',cursor:currentUser.isAdmin?'pointer':'default'}}>
                     {m.isMessMember ? '🍲 In Mess' : '❌ No Mess'}
                   </button>
-                  {m.active === false && (
-                    <span style={{background:'#f3f4f6',color:'#6b7280',padding:'3px 12px',borderRadius:999,fontSize:'0.72rem',fontWeight:700}}>💤 Inactive</span>
-                  )}
+                  {m.unclaimed
+                    ? <span title="Historical records waiting for this person to sign in" style={{background:'#fef3c7',color:'#92400e',padding:'3px 12px',borderRadius:999,fontSize:'0.72rem',fontWeight:700}}>📦 Unclaimed</span>
+                    : m.active === false && (
+                      <span style={{background:'#f3f4f6',color:'#6b7280',padding:'3px 12px',borderRadius:999,fontSize:'0.72rem',fontWeight:700}}>💤 Inactive</span>
+                    )}
 
                   {currentUser.isAdmin && (
                     <div style={{display:'flex', gap:6, marginLeft:'auto'}}>
