@@ -1,10 +1,26 @@
 # Setup & Cutover Guide
 
-Everything in this repo is written and ready. What remains are the steps that
-need **your** Google account — console toggles and secrets I cannot set for you.
+> ## Current state — cutover is COMPLETE
+>
+> | Step | Status |
+> |---|---|
+> | 1. Bootstrap admin email | done — `wolverinemds7@gmail.com` |
+> | 2. Google sign-in enabled | done |
+> | 3. Service account + CI secret | done |
+> | 4. Backup | done — `backups/2026-08-05T06-32-22-075Z` |
+> | 5. Migration | done — ₹496 / ₹53,100 / ₹22,163 verified identical before and after |
+> | 6. Rules + app deployed | done — unauthenticated reads *and* writes confirmed denied |
+> | 7. Sign in and admit people | **your turn** — see below |
+> | 8. API key referrer restriction | **outstanding** |
+> | 9. Status page | done — <https://lucifer-stone.github.io/flat-expense-manager/> |
+> | 10. Hosting consolidated | done — app on Firebase, status page on Pages |
+>
+> **Outstanding:** step 8, and eight residents still hold unclaimed history
+> (see step 7). Cloud Storage remains unavailable on the Spark plan, so receipt
+> uploads do not work — everything else does.
 
-Work through this in order. Steps 1–7 are the security cutover; 8–10 turn on
-monitoring and the status page.
+The steps below are kept as the reference procedure, and are what you would
+follow again on a fresh project.
 
 > **Read this before you start.** Step 5 migrates live financial data. Step 4 is
 > a full backup and it is not optional.
@@ -159,6 +175,25 @@ read a single expense, balance or member record. This is enforced in
 
 If you would rather pre-authorise someone before they ever sign in, **➕ Invite
 Member** still does that — they skip the queue entirely.
+
+### Unclaimed history
+
+Because the migration ran before eight residents' Google addresses were known,
+their records are parked on **unclaimed placeholder members**: Asad, Tabrez,
+Abdur Rahman, Saad, Asif, Abid, Wasi and Zeeshan.
+
+This is safe. Their deposits and expenses still belong to real member documents,
+so flat totals and every balance continue to reconcile — `npm run check` is
+green. What is deferred is only *whose login* the history sits behind.
+
+When one of them signs in, their approval card shows a dropdown. Pick
+**“This is Abid”** before hitting Approve, and their deposits, expenses and
+joint-bill shares transfer onto their new account and the placeholder is
+retired. Approve without picking anyone and they start from zero, leaving the
+placeholder for someone else.
+
+Get this right the first time: the transfer cannot be undone from the app. If
+you do mis-assign someone, restore from `backups/` and re-run the migration.
 
 **Declining** records the decision rather than deleting it, so the person sees a
 clear answer instead of silence, and cannot re-request in a loop. Clearing a
