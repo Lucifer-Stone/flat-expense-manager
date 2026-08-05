@@ -1,0 +1,357 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FlatMate Expense Manager — Firestore Security Rules
+//
+// Threat model: the client is fully untrusted. Anyone can read this app's source,
+// extract the Firebase config, and call Firestore directly with a hand-rolled
+// script. Every guarantee the app appears to make in its UI must be restated
+// here, or it is not a guarantee.
+//
+// Enforced below:
+//   * No unauthenticated access of any kind.
+//   * Only an allowlisted, active member can read anything.
+//   * A member may only file expenses/deposits AGAINST THEMSELVES. Admins may
+//     file on anyone's behalf.
+//   * A member may only edit/delete their OWN entries. Admins may edit any.
+//   * Non-mess members cannot claim expenses (mirrors the UI's rule).
+//   * Nobody can grant themselves admin. Only an existing admin can.
+//   * Amounts, dates, categories and field sets are validated server-side.
+//   * createdAt / createdBy are immutable once written.
+//   * The audit log is append-only, and the health doc is client-read-only.
+// ─────────────────────────────────────────────────────────────────────────────
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── BOOTSTRAP ────────────────────────────────────────────────────────────
+    // The chicken-and-egg problem: creating a member requires being an admin,
+    // but on day one there are no admins. This one email may self-provision as
+    // admin, once. Replace it with your own Google account email before
+    // deploying. It is not a secret — it grants nothing without control of that
+    // Google account.
+    function bootstrapAdminEmail() {
+      return 'wolverinemds7@gmail.com';
+    }
+
+    // ── IDENTITY HELPERS ─────────────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myDoc() {
+      return get(/databases/$(database)/documents/members/$(request.auth.uid)).data;
+    }
+
+    function isMember() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/members/$(request.auth.uid))
+        && myDoc().active == true;
+    }
+
+    function isAdmin() {
+      return isMember() && myDoc().isAdmin == true;
+    }
+
+    function isMessMember() {
+      return isMember() && myDoc().isMessMember == true;
+    }
+
+    // True when the acting user is the person the record is about.
+    function isSelf(memberId) {
+      return isSignedIn() && request.auth.uid == memberId;
+    }
+
+    // ── VALUE VALIDATORS ─────────────────────────────────────────────────────
+    // A rupee amount: positive, finite, and capped so a typo or a malicious
+    // client cannot poison every aggregate in the app with 1e308.
+    function validAmount(v) {
+      return v is number && v > 0 && v <= 1000000;
+    }
+
+    // Same, but permits zero (a deposit may be rent-only or mess-only).
+    function validAmountOrZero(v) {
+      return v is number && v >= 0 && v <= 1000000;
+    }
+
+    // 'YYYY-MM-DD'. Rules have no date parser, so this is a shape check plus a
+    // sane range on the year.
+    function validDate(v) {
+      return v is string
+        && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && v >= '2020-01-01'
+        && v <= '2100-01-01';
+    }
+
+    function validText(v, maxLen) {
+      return v is string && v.size() <= maxLen;
+    }
+
+    function expenseCategory(v) {
+      return v in ['Groceries', 'Utilities', 'Kitchen', 'Cleaning', 'Transport', 'Misc'];
+    }
+
+    function jointCategory(v) {
+      return v in ['Rent', 'WiFi Bill', 'Gas (Cylinder)', 'Current / Electricity Bill'];
+    }
+
+    // createdAt/createdBy must never drift after creation — they are the
+    // backbone of the audit trail and the integrity checker.
+    function provenanceUnchanged() {
+      return request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy;
+    }
+
+    function stampedByCaller() {
+      return request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+    }
+
+    // ── MEMBERS ──────────────────────────────────────────────────────────────
+    // Keyed by Firebase Auth uid. This collection IS the allowlist: if you have
+    // no doc here, you can read nothing, regardless of having a valid Google
+    // account.
+    match /members/{uid} {
+
+      function validMember() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['name', 'email', 'isAdmin', 'isMessMember', 'active'])
+          && d.keys().hasOnly(['name', 'email', 'isAdmin', 'isMessMember', 'active',
+                               'joinedAt', 'photoURL', 'lastSeenAt'])
+          && validText(d.name, 60) && d.name.size() > 0
+          && d.email is string
+          && d.isAdmin is bool
+          && d.isMessMember is bool
+          && d.active is bool;
+      }
+
+      allow read: if isMember();
+
+      function myInvite() {
+        return get(/databases/$(database)/documents/invites/$(request.auth.token.email.lower())).data;
+      }
+
+      function hasInvite() {
+        return exists(/databases/$(database)/documents/invites/$(request.auth.token.email.lower()));
+      }
+
+      // Three ways a member document comes into existence:
+      //
+      // Path 1: an admin provisions someone directly.
+      // Path 2: an INVITED user claims their own record on first Google sign-in.
+      //         They cannot choose their own privileges — isAdmin is forced
+      //         false and isMessMember is copied from the invite the admin
+      //         wrote. This is what makes self-service signup safe.
+      // Path 3: the bootstrap email provisions ITSELF as the first admin, to
+      //         break the day-one chicken-and-egg.
+      allow create: if validMember()
+        && (
+          isAdmin()
+          || (
+            isSelf(uid)
+            && request.auth.token.email_verified == true
+            && hasInvite()
+            && request.resource.data.email.lower() == request.auth.token.email.lower()
+            && request.resource.data.isAdmin == false
+            && request.resource.data.active == true
+            && request.resource.data.isMessMember == myInvite().isMessMember
+          )
+          || (
+            isSelf(uid)
+            && request.auth.token.email_verified == true
+            && request.auth.token.email.lower() == bootstrapAdminEmail()
+            && request.resource.data.email.lower() == bootstrapAdminEmail()
+          )
+        );
+
+      // Admins may edit anyone. A member may edit only their own display fields
+      // — critically, NOT isAdmin, isMessMember or active, which are the three
+      // fields that would let them escalate.
+      allow update: if validMember() && (
+        isAdmin()
+        || (
+          isSelf(uid)
+          && request.resource.data.isAdmin == resource.data.isAdmin
+          && request.resource.data.isMessMember == resource.data.isMessMember
+          && request.resource.data.active == resource.data.active
+          && request.resource.data.email == resource.data.email
+        )
+      );
+
+      // Deletion is admin-only. NOTE: Firestore rules cannot count documents,
+      // so "you may not delete the last admin" cannot be enforced here. The app
+      // blocks it, and scripts/integrity-check.mjs alerts if it ever happens.
+      // Prefer setting active:false over deleting — it preserves history.
+      allow delete: if isAdmin();
+    }
+
+    // ── INVITES ──────────────────────────────────────────────────────────────
+    // Admin pre-authorises an email address. Doc id is the lowercased email.
+    // A signed-in user may read ONLY the invite matching their own verified
+    // email, so this collection cannot be scraped for the resident list.
+    match /invites/{email} {
+      allow read: if isAdmin()
+        || (isSignedIn() && request.auth.token.email.lower() == email);
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['name', 'isMessMember', 'invitedBy', 'invitedAt'])
+        && validText(request.resource.data.name, 60);
+      allow delete: if isAdmin();
+    }
+
+    // ── EXPENSES ─────────────────────────────────────────────────────────────
+    // An individual lays out their own money and claims it back from the pool.
+    match /expenses/{id} {
+
+      function validExpense() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['memberId', 'amount', 'category', 'date', 'createdAt', 'createdBy'])
+          && d.keys().hasOnly(['memberId', 'amount', 'category', 'description', 'date',
+                               'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+          && d.memberId is string
+          && validAmount(d.amount)
+          && expenseCategory(d.category)
+          && validDate(d.date)
+          && validText(d.get('description', ''), 300)
+          // The member being charged must actually exist and be in the mess.
+          && exists(/databases/$(database)/documents/members/$(d.memberId))
+          && get(/databases/$(database)/documents/members/$(d.memberId)).data.isMessMember == true;
+      }
+
+      allow read: if isMember();
+
+      // You may file for yourself (if you're in the mess); admins file for anyone.
+      allow create: if validExpense()
+        && stampedByCaller()
+        && (
+          (isSelf(request.resource.data.memberId) && isMessMember())
+          || isAdmin()
+        );
+
+      allow update: if validExpense()
+        && provenanceUnchanged()
+        && (isAdmin() || isSelf(resource.data.memberId))
+        // A non-admin cannot reassign their expense onto someone else.
+        && (isAdmin() || request.resource.data.memberId == resource.data.memberId);
+
+      allow delete: if isAdmin() || isSelf(resource.data.memberId);
+    }
+
+    // ── CONTRIBUTIONS (deposits into the pool) ───────────────────────────────
+    match /contributions/{id} {
+
+      function validContribution() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['memberId', 'rentAmount', 'messAmount', 'date', 'createdAt', 'createdBy'])
+          && d.keys().hasOnly(['memberId', 'rentAmount', 'messAmount', 'date', 'note',
+                               'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+          && d.memberId is string
+          && validAmountOrZero(d.rentAmount)
+          && validAmountOrZero(d.messAmount)
+          // A deposit of nothing is not a deposit.
+          && (d.rentAmount + d.messAmount) > 0
+          && validDate(d.date)
+          && validText(d.get('note', ''), 300)
+          && exists(/databases/$(database)/documents/members/$(d.memberId))
+          // Only mess members may put money into the mess pot.
+          && (d.messAmount == 0
+              || get(/databases/$(database)/documents/members/$(d.memberId)).data.isMessMember == true);
+      }
+
+      allow read: if isMember();
+
+      allow create: if validContribution()
+        && stampedByCaller()
+        && (isSelf(request.resource.data.memberId) || isAdmin());
+
+      allow update: if validContribution()
+        && provenanceUnchanged()
+        && (isAdmin() || isSelf(resource.data.memberId))
+        && (isAdmin() || request.resource.data.memberId == resource.data.memberId);
+
+      allow delete: if isAdmin() || isSelf(resource.data.memberId);
+    }
+
+    // ── JOINT BILLS ──────────────────────────────────────────────────────────
+    // Flat-level bills split across a named set of members. Admin-only, because
+    // a joint bill debits everyone's balance at once.
+    match /jointBills/{id} {
+
+      function validJointBill() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['category', 'amount', 'date', 'applicableMembers', 'createdAt', 'createdBy'])
+          && d.keys().hasOnly(['category', 'amount', 'date', 'applicableMembers', 'receiptPath',
+                               'receiptUrl', 'note', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+          && jointCategory(d.category)
+          && validAmount(d.amount)
+          && validDate(d.date)
+          && d.applicableMembers is list
+          && d.applicableMembers.size() > 0
+          && d.applicableMembers.size() <= 50
+          // New uploads store a bucket PATH and mint a download URL per view,
+          // so the receipt cannot be read by anyone who is not signed in.
+          && validText(d.get('receiptPath', ''), 400)
+          && (d.get('receiptPath', '') == '' || d.receiptPath.matches('^bills/[A-Za-z0-9._/-]+$'))
+          // receiptUrl is legacy (pre-migration) data only. Still pinned to our
+          // own bucket so a stale row cannot point "View Receipt" at a phishing page.
+          && validText(d.get('receiptUrl', ''), 2000)
+          && (d.get('receiptUrl', '') == ''
+              || d.receiptUrl.matches('^https://firebasestorage\\.googleapis\\.com/.*'));
+      }
+
+      allow read: if isMember();
+      allow create: if isAdmin() && validJointBill() && stampedByCaller();
+      allow update: if isAdmin() && validJointBill() && provenanceUnchanged();
+      allow delete: if isAdmin();
+    }
+
+    // ── COOK ATTENDANCE ──────────────────────────────────────────────────────
+    // One document per day, keyed 'YYYY-MM-DD'. Per-day docs rather than one
+    // big month blob so two people marking different days never clobber each
+    // other.
+    match /cookAttendance/{day} {
+      allow read: if isMember();
+      allow write: if isMember()
+        && day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['state', 'updatedBy', 'updatedAt'])
+        && request.resource.data.state in ['full', 'half', 'absent']
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if isMember();
+    }
+
+    // ── MONTHLY CONFIG ───────────────────────────────────────────────────────
+    // Doc id 'YYYY-MM'. Admin-only: these are the headline per-head figures.
+    match /config/{month} {
+      allow read: if isMember();
+      allow write: if isAdmin()
+        && month.matches('^[0-9]{4}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['rent', 'mess', 'updatedBy', 'updatedAt'])
+        && validAmountOrZero(request.resource.data.rent)
+        && validAmountOrZero(request.resource.data.mess);
+    }
+
+    // ── AUDIT LOG ────────────────────────────────────────────────────────────
+    // Append-only. No client may ever rewrite or erase history — that is the
+    // entire point of the collection.
+    match /audit/{id} {
+      allow read: if isAdmin();
+      allow create: if isMember()
+        && request.resource.data.actor == request.auth.uid
+        && request.resource.data.at == request.time;
+      allow update, delete: if false;
+    }
+
+    // ── HEALTH ───────────────────────────────────────────────────────────────
+    // Written only by the CI service account via the Admin SDK, which bypasses
+    // these rules. Clients read it to render the in-app integrity banner.
+    match /_health/{doc} {
+      allow read: if isMember();
+      allow write: if false;
+    }
+
+    // ── DEFAULT DENY ─────────────────────────────────────────────────────────
+    // Anything not explicitly matched above is refused. Keep this last.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

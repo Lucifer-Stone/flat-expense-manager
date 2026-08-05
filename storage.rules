@@ -1,0 +1,52 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FlatMate Expense Manager — Cloud Storage Rules (receipt / bill uploads)
+//
+// IMPORTANT LIMITATION: Cloud Storage rules cannot read Firestore, so they
+// cannot check the /members allowlist the way firestore.rules does. The strongest
+// available check here is "signed in with a verified Google account". Defence in
+// depth comes from three other places:
+//   1. Firestore rules only let an ADMIN attach a receipt to a joint bill.
+//   2. Bill documents store a bucket PATH, not a public download URL, so the
+//      client must be authorised to mint a read URL at view time.
+//   3. Upload paths are unguessable and writes are size/type capped below.
+// ─────────────────────────────────────────────────────────────────────────────
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    // Receipts and bills. Filenames are generated client-side and include a
+    // random component, so they are not enumerable.
+    match /bills/{fileName} {
+
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
+        // 10 MB ceiling — a phone photo is ~3 MB; anything larger is abuse.
+        && request.resource.size < 10 * 1024 * 1024
+        // Only images and PDFs. Blocks uploading HTML/JS and serving it from
+        // your own trusted origin.
+        && (
+          request.resource.contentType.matches('image/(jpeg|png|webp|heic|heif)')
+          || request.resource.contentType == 'application/pdf'
+        )
+        && fileName.matches('^[A-Za-z0-9._-]+$')
+        && fileName.size() < 200;
+
+      // Receipts are evidence. Once uploaded they are never silently swapped —
+      // an admin deletes and re-uploads, which is visible in the bill's history.
+      allow update: if false;
+      allow delete: if isSignedIn();
+    }
+
+    // Everything outside /bills is refused.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
