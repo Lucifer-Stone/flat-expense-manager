@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-05T03:49:41.094Z",
+  "updatedAt": "2026-08-05T04:51:10.324Z",
   "project": "expense-manager-204",
   "overall": "major_outage",
   "components": [
@@ -8,7 +8,7 @@
       "name": "Web App",
       "description": "The FlatMate app itself, served from Firebase Hosting",
       "state": "up",
-      "latencyMs": 132,
+      "latencyMs": 437,
       "httpStatus": 200,
       "error": null,
       "uptime90d": 100
@@ -18,7 +18,7 @@
       "name": "Database (Firestore)",
       "description": "Where every expense, deposit and bill is stored",
       "state": "up",
-      "latencyMs": 1207,
+      "latencyMs": 345,
       "httpStatus": 403,
       "error": null,
       "uptime90d": 100
@@ -28,7 +28,7 @@
       "name": "Sign-In (Google)",
       "description": "Google authentication used to sign in",
       "state": "up",
-      "latencyMs": 1074,
+      "latencyMs": 117,
       "httpStatus": 403,
       "error": null,
       "uptime90d": 100
@@ -38,26 +38,56 @@
       "name": "Receipt Storage",
       "description": "Uploaded bill and receipt images",
       "state": "down",
-      "latencyMs": 518,
+      "latencyMs": 161,
       "httpStatus": 404,
       "error": null,
       "uptime90d": 0
     }
   ],
   "integrity": {
-    "status": "unknown",
-    "checkedAt": "2026-08-05T03:49:44.115Z",
+    "status": "fail",
+    "checkedAt": "2026-08-05T04:51:13.543Z",
     "summary": {
-      "total": 0,
-      "passed": 0,
-      "warnings": 0,
-      "failures": 0
+      "total": 17,
+      "passed": 15,
+      "warnings": 1,
+      "failures": 1
     },
-    "totals": null,
-    "failing": [],
-    "error": "Dependencies are not installed — run `npm install` before checking integrity."
+    "totals": {
+      "members": 0,
+      "activeMembers": 0,
+      "expenses": 0,
+      "contributions": 0,
+      "jointBills": 0,
+      "totalDeposits": 0,
+      "totalClaims": 0,
+      "totalJointBills": 0,
+      "poolBalance": 0,
+      "balanceDrift": 0
+    },
+    "failing": [
+      {
+        "name": "At least one active admin",
+        "status": "fail",
+        "detail": "There are NO active admins. Nobody can add members, log joint bills or edit config. Restore one via the Firebase console."
+      },
+      {
+        "name": "Legacy documents not diverging",
+        "status": "warn",
+        "detail": "The legacy app/expenses document totals ₹496 but the live expenses collection totals ₹0. Either an old client is still writing to the legacy layout, or the legacy doc is simply a stale rollback snapshot (expected after migration — delete it once you are confident)."
+      }
+    ],
+    "error": null
   },
-  "incidents": [],
+  "incidents": [
+    {
+      "component": "integrity",
+      "componentName": "Data Integrity",
+      "startedAt": "2026-08-05T04:51:10.324Z",
+      "endedAt": null,
+      "detail": "At least one active admin"
+    }
+  ],
   "history": [
     {
       "t": "2026-08-05T03:48:46.559Z",
@@ -78,6 +108,16 @@
         "storage": "down"
       },
       "i": "unknown"
+    },
+    {
+      "t": "2026-08-05T04:51:10.324Z",
+      "c": {
+        "app": "up",
+        "firestore": "up",
+        "auth": "up",
+        "storage": "down"
+      },
+      "i": "fail"
     }
   ]
 }
