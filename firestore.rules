@@ -116,8 +116,14 @@ service cloud.firestore {
       function validMember() {
         let d = request.resource.data;
         return d.keys().hasAll(['name', 'email', 'isAdmin', 'isMessMember', 'active'])
+          // legacyId and unclaimed are written by the migration. They must be
+          // permitted here or every later edit to a migrated member would be
+          // rejected: on update, request.resource.data is the MERGED document,
+          // so a field absent from this list fails hasOnly even when the client
+          // never touched it.
           && d.keys().hasOnly(['name', 'email', 'isAdmin', 'isMessMember', 'active',
-                               'joinedAt', 'photoURL', 'lastSeenAt'])
+                               'joinedAt', 'photoURL', 'lastSeenAt',
+                               'legacyId', 'unclaimed'])
           && validText(d.name, 60) && d.name.size() > 0
           && d.email is string
           && d.isAdmin is bool
@@ -256,8 +262,11 @@ service cloud.firestore {
       function validExpense() {
         let d = request.resource.data;
         return d.keys().hasAll(['memberId', 'amount', 'category', 'date', 'createdAt', 'createdBy'])
+          // migratedFrom is stamped by the migration; it must be listed or every
+          // edit to a migrated expense would be rejected (see members above).
           && d.keys().hasOnly(['memberId', 'amount', 'category', 'description', 'date',
-                               'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+                               'createdAt', 'createdBy', 'updatedAt', 'updatedBy',
+                               'migratedFrom'])
           && d.memberId is string
           && validAmount(d.amount)
           && expenseCategory(d.category)
@@ -294,7 +303,8 @@ service cloud.firestore {
         let d = request.resource.data;
         return d.keys().hasAll(['memberId', 'rentAmount', 'messAmount', 'date', 'createdAt', 'createdBy'])
           && d.keys().hasOnly(['memberId', 'rentAmount', 'messAmount', 'date', 'note',
-                               'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+                               'createdAt', 'createdBy', 'updatedAt', 'updatedBy',
+                               'migratedFrom'])
           && d.memberId is string
           && validAmountOrZero(d.rentAmount)
           && validAmountOrZero(d.messAmount)
@@ -331,7 +341,8 @@ service cloud.firestore {
         let d = request.resource.data;
         return d.keys().hasAll(['category', 'amount', 'date', 'applicableMembers', 'createdAt', 'createdBy'])
           && d.keys().hasOnly(['category', 'amount', 'date', 'applicableMembers', 'receiptPath',
-                               'receiptUrl', 'note', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+                               'receiptUrl', 'note', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy',
+                               'migratedFrom'])
           && jointCategory(d.category)
           && validAmount(d.amount)
           && validDate(d.date)
