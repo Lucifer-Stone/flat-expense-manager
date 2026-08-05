@@ -1,14 +1,44 @@
-# Firebase
+# ── Credentials — NEVER commit these ─────────────────────────────────────────
+# A service-account key bypasses every security rule in this repo. Treat a leak
+# as a full database compromise: revoke the key in the Google Cloud console
+# immediately, do not merely delete the commit.
+*service-account*.json
+*serviceAccount*.json
+sa.json
+secrets/
+*.pem
+*.key
+.env
+.env.*
+
+# Google downloads service-account keys as "<project-id>-<key-id>.json" and
+# "<project>-firebase-adminsdk-<hash>.json". Neither matches the patterns above,
+# so they are named explicitly. A key committed here is a full database
+# compromise — the rules in this repo do not apply to the Admin SDK.
+expense-manager-204-*.json
+*-firebase-adminsdk-*.json
+*-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].json
+
+# Contains real email addresses of your flatmates.
+scripts/member-map.json
+
+# ── Data ─────────────────────────────────────────────────────────────────────
+# Local Firestore exports. These hold everyone's financial history.
+backups/
+
+# ── Firebase ─────────────────────────────────────────────────────────────────
 .firebase/
 firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
 
-# Mac
+# ── Node ─────────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+
+# ── OS / IDE ─────────────────────────────────────────────────────────────────
 .DS_Store
-
-# Windows
 Thumbs.db
-
-# IDE and Workspaces
 .vscode/
 .idea/
 *.code-workspace

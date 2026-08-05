@@ -1,0 +1,26 @@
+{
+  "name": "flat-expense-manager",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared expense manager for a flat — Firebase Hosting + Firestore, with data-integrity monitoring and a status page.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "doctor": "node scripts/doctor.mjs",
+    "preflight": "node scripts/preflight.mjs",
+    "backup": "node scripts/backup.mjs",
+    "migrate:dry": "node scripts/migrate.mjs --dry-run",
+    "migrate": "node scripts/migrate.mjs --commit",
+    "check": "node scripts/integrity-check.mjs",
+    "check:json": "node scripts/integrity-check.mjs --json",
+    "status:build": "node scripts/build-status.mjs",
+    "deploy": "firebase deploy --only hosting,firestore,storage",
+    "deploy:rules": "firebase deploy --only firestore:rules,storage",
+    "serve": "firebase emulators:start --only hosting,firestore,storage"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.2"
+  }
+}
