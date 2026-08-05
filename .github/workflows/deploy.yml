@@ -67,15 +67,30 @@ jobs:
       - name: Install Firebase CLI
         run: npm install -g firebase-tools@13
 
-      - name: Deploy hosting, Firestore rules, Storage rules and indexes
+      - name: Deploy hosting, Firestore rules and indexes
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/sa.json
         run: |
           printf '%s' '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > sa.json
           firebase deploy \
-            --only hosting,firestore:rules,firestore:indexes,storage \
+            --only hosting,firestore:rules,firestore:indexes \
             --project expense-manager-204 \
             --non-interactive
+          rm -f sa.json
+
+      - name: Deploy Storage rules (best effort)
+        # Cloud Storage needs the Blaze plan, and this project currently has no
+        # bucket. Storage rules are meaningless without one, and a missing
+        # bucket must not block shipping the app — receipts are one optional
+        # field, not the product. The status page already reports Receipt
+        # Storage as down, so this failure is visible rather than hidden.
+        continue-on-error: true
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/sa.json
+        run: |
+          printf '%s' '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > sa.json
+          firebase deploy --only storage --project expense-manager-204 --non-interactive \
+            || echo "::warning::Storage rules not deployed — no bucket exists (needs Blaze). Receipt uploads remain unavailable."
           rm -f sa.json
 
       - name: Verify the deployed app is reachable

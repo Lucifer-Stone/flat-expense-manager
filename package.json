@@ -16,8 +16,9 @@
     "check": "node scripts/integrity-check.mjs",
     "check:json": "node scripts/integrity-check.mjs --json",
     "status:build": "node scripts/build-status.mjs",
-    "deploy": "firebase deploy --only hosting,firestore,storage",
-    "deploy:rules": "firebase deploy --only firestore:rules,storage",
+    "deploy": "firebase deploy --only hosting,firestore:rules,firestore:indexes",
+    "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes",
+    "deploy:storage": "firebase deploy --only storage",
     "serve": "firebase emulators:start --only hosting,firestore,storage"
   },
   "dependencies": {
