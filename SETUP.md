@@ -47,11 +47,14 @@ that Google account.
 
 ## 2. Enable Google sign-in
 
-> **⚠️ VERIFIED NOT DONE — this is currently the blocker.**
-> The Admin SDK reports `auth/configuration-not-found` for this project, which
-> means Firebase Authentication has never been initialised. Until this step is
-> done: nobody can sign in, and the migration cannot run (it pre-creates Auth
-> users to get stable uids). Check any time with `npm run doctor`.
+> **Done on this project.** Verified: the `google.com` provider is enabled with
+> an OAuth client, all three domains below are authorised, and account linking
+> is set to one account per email. Re-check any time with
+> `node scripts/check-auth-config.mjs`.
+>
+> Note that *enabling Authentication* and *enabling a provider* are two separate
+> actions. Doing only the first leaves sign-in broken, and the Admin SDK reports
+> `auth/configuration-not-found` until Authentication itself is initialised.
 
 Firebase Console → **Authentication** → *Get started* → **Sign-in method** →
 enable **Google** → set a support email → Save.
