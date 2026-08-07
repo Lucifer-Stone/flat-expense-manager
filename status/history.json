@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-08-06T23:53:49.918Z",
+  "updatedAt": "2026-08-07T02:24:01.601Z",
   "project": "expense-manager-204",
   "overall": "major_outage",
   "components": [
@@ -8,7 +8,7 @@
       "name": "Web App",
       "description": "The FlatMate app itself, served from Firebase Hosting",
       "state": "up",
-      "latencyMs": 188,
+      "latencyMs": 196,
       "httpStatus": 200,
       "error": null,
       "uptime90d": 100
@@ -18,7 +18,7 @@
       "name": "Database (Firestore)",
       "description": "Where every expense, deposit and bill is stored",
       "state": "up",
-      "latencyMs": 1721,
+      "latencyMs": 1492,
       "httpStatus": 403,
       "error": null,
       "uptime90d": 100
@@ -28,7 +28,7 @@
       "name": "Sign-In (Google)",
       "description": "Google authentication used to sign in",
       "state": "up",
-      "latencyMs": 101,
+      "latencyMs": 92,
       "httpStatus": 403,
       "error": null,
       "uptime90d": 100
@@ -38,7 +38,7 @@
       "name": "Receipt Storage",
       "description": "Uploaded bill and receipt images",
       "state": "down",
-      "latencyMs": 117,
+      "latencyMs": 151,
       "httpStatus": 404,
       "error": null,
       "uptime90d": 0
@@ -46,7 +46,7 @@
   ],
   "integrity": {
     "status": "warn",
-    "checkedAt": "2026-08-06T23:53:54.522Z",
+    "checkedAt": "2026-08-07T02:24:05.750Z",
     "summary": {
       "total": 18,
       "passed": 17,
@@ -306,6 +306,16 @@
     },
     {
       "t": "2026-08-06T23:53:49.918Z",
+      "c": {
+        "app": "up",
+        "firestore": "up",
+        "auth": "up",
+        "storage": "down"
+      },
+      "i": "warn"
+    },
+    {
+      "t": "2026-08-07T02:24:01.601Z",
       "c": {
         "app": "up",
         "firestore": "up",
